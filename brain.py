@@ -428,9 +428,49 @@ def _call_openrouter(msgs):
     raise Exception(f"فشلت كل نماذج OpenRouter: {last_err}")
 
 
+_GROQ_MODEL_CACHE = None
+
+
+def _groq_model(key):
+    """يكتشف نموذج Groq متاح لهذا الحساب تلقائياً (أسماء Groq تتغيّر).
+    الأولوية للنماذج الأكبر (70b/versatile) ثم السريعة، مع تجاهل whisper/tts/guard.
+    يُحترم GROQ_MODEL إن ضُبط يدوياً."""
+    global _GROQ_MODEL_CACHE
+    env = os.getenv("GROQ_MODEL")
+    if env:
+        return env
+    if _GROQ_MODEL_CACHE:
+        return _GROQ_MODEL_CACHE
+    try:
+        data = _safe_request("https://api.groq.com/openai/v1/models", None,
+                             {"Authorization": f"Bearer {key}"}, method="GET")
+        ids = [m["id"] for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
+
+        def score(mid):
+            m = mid.lower()
+            if any(x in m for x in ("whisper", "tts", "guard", "embed", "vision")):
+                return -1
+            s = 0
+            if "70b" in m or "versatile" in m:
+                s += 3
+            if "llama" in m:
+                s += 1
+            if "instant" in m or "8b" in m:
+                s += 1
+            return s
+
+        cand = sorted([i for i in ids if score(i) >= 0], key=score, reverse=True)
+        if cand:
+            _GROQ_MODEL_CACHE = cand[0]
+            return cand[0]
+    except Exception:
+        pass
+    return "llama-3.1-8b-instant"  # احتياط شائع التوفّر
+
+
 def _call_groq(msgs):
     key = os.getenv("GROQ_API_KEY")
-    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    model = _groq_model(key)
     data = _safe_request(
         "https://api.groq.com/openai/v1/chat/completions",
         {"model": model, "messages": msgs},
