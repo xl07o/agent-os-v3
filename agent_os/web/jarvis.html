@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS — Agent OS v3</title>
+<style>
+  :root { --bg:#04070f; --fg:#dbeafe; --accent:#38bdf8; --accent2:#0ea5e9; --dim:#64748b; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #app { display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100%; gap:22px; padding:16px; }
+  /* الوجه/الكرة */
+  .orb-wrap { position:relative; width:260px; height:260px; display:grid; place-items:center; }
+  .orb { width:180px; height:180px; border-radius:50%;
+    background:radial-gradient(circle at 50% 40%, #7dd3fc 0%, var(--accent) 30%, var(--accent2) 60%, #0c4a6e 100%);
+    box-shadow:0 0 60px 8px rgba(56,189,248,.55), inset 0 0 40px rgba(255,255,255,.25);
+    animation:breathe 3.4s ease-in-out infinite; transition:all .3s; }
+  .ring { position:absolute; inset:0; border-radius:50%; border:2px solid rgba(56,189,248,.3);
+    animation:spin 8s linear infinite; }
+  .ring.r2 { inset:22px; border-color:rgba(125,211,252,.2); animation-duration:5s; animation-direction:reverse; }
+  @keyframes breathe { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.06); } }
+  @keyframes spin { to{ transform:rotate(360deg); } }
+  /* حالات */
+  body.listening .orb { animation:breathe 1s ease-in-out infinite;
+    box-shadow:0 0 90px 14px rgba(56,189,248,.9), inset 0 0 40px rgba(255,255,255,.4); }
+  body.thinking .orb { background:radial-gradient(circle at 50% 40%,#fde68a,#f59e0b 60%,#b45309);
+    box-shadow:0 0 80px 12px rgba(245,158,11,.7); }
+  body.speaking .orb { animation:breathe .5s ease-in-out infinite; }
+  body.error .orb { background:radial-gradient(circle at 50% 40%,#fca5a5,#ef4444 60%,#7f1d1d); }
+  .state { font-size:15px; color:var(--dim); letter-spacing:1px; min-height:20px; }
+  .transcript { font-size:22px; font-weight:600; min-height:34px; text-align:center;
+    max-width:680px; }
+  .reply { font-size:17px; color:#93c5fd; min-height:26px; text-align:center; max-width:720px;
+    line-height:1.7; }
+  .row { display:flex; gap:10px; width:min(680px,92vw); }
+  input { flex:1; background:#0b1220; border:1px solid #1e3a5f; color:var(--fg);
+    padding:12px 14px; border-radius:12px; font-size:16px; }
+  button { background:var(--accent); color:#04121f; border:0; padding:12px 18px;
+    border-radius:12px; font-weight:700; cursor:pointer; font-size:15px; }
+  button.ghost { background:transparent; border:1px solid #1e3a5f; color:var(--fg); }
+  .hint { font-size:12px; color:var(--dim); text-align:center; max-width:640px; line-height:1.7; }
+  .badge { position:fixed; top:12px; left:12px; font-size:12px; color:var(--dim); }
+  .log { position:fixed; bottom:10px; left:12px; right:12px; max-height:22vh; overflow:auto;
+    font-size:12px; color:#475569; }
+  .log div { padding:2px 0; }
+</style>
+</head>
+<body class="idle">
+  <div class="badge" id="badge">● غير متصل</div>
+  <div id="app">
+    <div class="orb-wrap">
+      <div class="ring"></div><div class="ring r2"></div>
+      <div class="orb" id="orb"></div>
+    </div>
+    <div class="state" id="state">قل «جارفيس» لإيقاظي… أو اكتب أمرك بالأسفل</div>
+    <div class="transcript" id="transcript"></div>
+    <div class="reply" id="reply"></div>
+    <div class="row">
+      <input id="cmd" placeholder="اكتب أمراً (مثال: سجّل هدف بناء متجر)…" autocomplete="off">
+      <button id="send">إرسال</button>
+      <button class="ghost" id="mic">🎙️ الاستماع</button>
+    </div>
+    <div class="hint">
+      يعمل في Chrome/Edge. عند أول مرة اسمح بالميكروفون. يستيقظ عند سماع «جارفيس» أو «Jarvis»،
+      ثم ينفّذ أمرك عبر نواة الوكيل ويردّ بصوته. الصوت من المتصفح — بلا أي تثبيت.
+    </div>
+  </div>
+  <div class="log" id="log"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const setState = (cls, txt) => { document.body.className = cls; if(txt!==undefined) $('state').textContent = txt; };
+const log = m => { const d=document.createElement('div'); d.textContent='• '+m; $('log').prepend(d); };
+
+const WAKE = ["جارفيس","جارفس","جرفيس","jarvis","hey jarvis"];
+let awake = false, recog = null, listening = false;
+
+// ===== الاتصال بالخادم =====
+async function ask(q){
+  setState('thinking','أفكّر…'); $('reply').textContent='';
+  try{
+    const r = await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({q})});
+    const d = await r.json();
+    const reply = d.reply || d.error || '—';
+    $('reply').textContent = reply;
+    speak(reply);
+    log('أمر: '+q+' → '+reply);
+  }catch(e){ setState('error','تعذّر الاتصال بالخادم'); $('reply').textContent='شغّل الخادم: python -m agent_os.server'; }
+}
+
+async function status(){
+  try{ const r=await fetch('/api/status'); const d=await r.json();
+    $('badge').textContent='● متصل — عقل: '+((d.brain_providers_available||[]).length||'محلي/بلا مزوّد');
+    $('badge').style.color='#34d399';
+  }catch(e){ $('badge').textContent='● الخادم غير مشغّل'; }
+}
+
+// ===== النُطق (TTS من المتصفح) =====
+function speak(text){
+  if(!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = /[؀-ۿ]/.test(text) ? 'ar-SA' : 'en-US';
+  u.rate = 1.02;
+  u.onstart = ()=> setState('speaking','أتكلّم…');
+  u.onend = ()=>{ setState('idle','قل «جارفيس» أو اكتب أمرك'); };
+  speechSynthesis.speak(u);
+}
+
+// ===== السمع + كلمة الإيقاظ (STT من المتصفح) =====
+function initRecog(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ log('متصفحك لا يدعم التعرّف الصوتي — استخدم Chrome. الكتابة تعمل.'); return null; }
+  const r = new SR();
+  r.lang = 'ar-SA'; r.continuous = true; r.interimResults = true;
+  r.onresult = e => {
+    let txt=''; for(let i=e.resultIndex;i<e.results.length;i++) txt+=e.results[i][0].transcript;
+    txt = txt.trim(); $('transcript').textContent = txt;
+    const low = txt.toLowerCase();
+    if(!awake){
+      if(WAKE.some(w=>low.includes(w))){ awake=true; setState('listening','نعم؟ أنا أسمعك…');
+        $('transcript').textContent=''; speak('نعم'); }
+    } else if(e.results[e.results.length-1].isFinal){
+      const cmd = txt; awake=false; $('transcript').textContent=cmd;
+      if(cmd) ask(cmd);
+    }
+  };
+  r.onerror = ev => log('صوت: '+ev.error);
+  r.onend = ()=>{ if(listening){ try{r.start();}catch(e){} } };  // استمرار دائم
+  return r;
+}
+
+function toggleMic(){
+  if(!recog) recog = initRecog();
+  if(!recog) return;
+  listening = !listening;
+  if(listening){ try{recog.start();}catch(e){} $('mic').textContent='⏹️ إيقاف'; setState('idle','أستمع… قل «جارفيس»'); }
+  else { recog.stop(); $('mic').textContent='🎙️ الاستماع'; setState('idle','متوقّف عن السمع'); }
+}
+
+$('send').onclick = ()=>{ const v=$('cmd').value.trim(); if(v){ ask(v); $('cmd').value=''; } };
+$('cmd').onkeydown = e => { if(e.key==='Enter') $('send').click(); };
+$('mic').onclick = toggleMic;
+status(); setInterval(status, 15000);
+log('JARVIS جاهز. اضغط «الاستماع» ثم قل «جارفيس».');
+</script>
+</body>
+</html>
