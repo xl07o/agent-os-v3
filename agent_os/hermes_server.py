@@ -224,10 +224,33 @@ class _H(BaseHTTPRequestHandler):
         status, obj = handle_rest("GET", p.path, p.query, self._headers(), None)
         self._json(status, obj)
 
+    def _read_body(self):
+        """يقرأ جسم الطلب سواء بـ Content-Length أو Transfer-Encoding: chunked
+        (عملاء Dart/Flutter — ومنهم JARVIS — يرسلون chunked بلا طول، فكان
+        الجسم يُقرأ فارغاً ويرجع 400)."""
+        te = (self.headers.get("Transfer-Encoding", "") or "").lower()
+        if "chunked" in te:
+            data = b""
+            while True:
+                size_line = self.rfile.readline().strip()
+                if not size_line:
+                    break
+                try:
+                    size = int(size_line.split(b";")[0], 16)
+                except ValueError:
+                    break
+                if size == 0:
+                    self.rfile.readline()  # سطر CRLF الختامي
+                    break
+                data += self.rfile.read(size)
+                self.rfile.read(2)  # CRLF بعد كل قطعة
+            return data.decode("utf-8", "replace")
+        n = int(self.headers.get("Content-Length", 0) or 0)
+        return self.rfile.read(n).decode("utf-8", "replace") if n else ""
+
     def do_POST(self):
         p = urllib.parse.urlparse(self.path)
-        n = int(self.headers.get("Content-Length", 0) or 0)
-        body = self.rfile.read(n).decode("utf-8", "replace") if n else ""
+        body = self._read_body()
         status, obj = handle_rest("POST", p.path, p.query, self._headers(), body)
         self._json(status, obj)
 

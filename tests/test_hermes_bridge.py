@@ -68,3 +68,22 @@ def test_session_messages_have_tool_rows():
     _, msgs = H.handle_rest("GET", f"/api/sessions/{o['run_id']}/messages", "", {}, None)
     roles = [m["role"] for m in msgs["data"]]
     assert "tool" in roles and roles[0] == "user" and roles[-1] == "assistant"
+
+
+# ===== قراءة الجسم المُقطّع (سبب خطأ 400 مع JARVIS/Dart) =====
+def test_read_body_chunked():
+    import io
+    fake = type("F", (), {})()
+    fake.headers = {"Transfer-Encoding": "chunked"}
+    body = '{"model":"hermes-agent","input":"سجل هدف"}'
+    b = body.encode("utf-8")
+    chunk = (format(len(b), "x") + "\r\n").encode() + b + b"\r\n0\r\n\r\n"
+    fake.rfile = io.BytesIO(chunk)
+    assert H._H._read_body(fake) == body
+
+def test_read_body_content_length():
+    import io
+    fake = type("F", (), {})()
+    fake.headers = {"Content-Length": "5"}
+    fake.rfile = io.BytesIO(b"hello")
+    assert H._H._read_body(fake) == "hello"
