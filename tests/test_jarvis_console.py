@@ -60,3 +60,38 @@ def test_noise_input_asks_for_clarification():
 def test_real_command_still_runs_after_guard():
     assert jarvis.handle("سجّل هدف بناء متجر")["kind"] == "task"
     assert jarvis.handle("حالة")["kind"] == "status"
+
+
+def test_conversational_vs_task_routing():
+    # تحاوري → شات (ليس مهمة)
+    for chat in ["can you talk to me", "كيف حالك", "وش تقدر تسوي", "مرحبا"]:
+        assert jarvis._is_task(chat) is False, chat
+    # تنفيذي → مهمة
+    for task in ["سجّل هدف بناء متجر", "ابنِ لي أداة", "طوّر نفسك", "build me a tool", "ابحث عن بايثون"]:
+        assert jarvis._is_task(task) is True, task
+
+def test_chat_reply_is_honest_without_provider():
+    import brain
+    if not brain.available_engines():
+        out = jarvis.handle("كيف حالك")
+        assert isinstance(out["reply"], str) and out["reply"]
+        assert "المهمة" not in out["reply"]  # ليس ردّ مهمة
+
+
+def test_trim_caps_verbosity():
+    long = "أولى. ثانية! ثالثة؟ رابعة زائدة. خامسة."
+    out = jarvis._trim(long)
+    assert (out.count(".") + out.count("؟") + out.count("!")) <= 3
+    assert len(jarvis._trim("x " * 500)) <= 402
+
+def test_task_reply_is_specific_not_generic():
+    # هدف مُسجَّل → رد محدّد صادق، لا «أنجزت المهمة» العامة
+    r = jarvis.handle("سجّل هدف بناء متجر")
+    assert "المهمة" not in r["reply"]           # لا صيغة عامة
+    assert "الهدف" in r["reply"] or "✅" in r["reply"]
+
+def test_unfinished_task_states_reason():
+    import brain
+    if not brain.available_engines():
+        r = jarvis.handle("اكتب تقرير بحث فريد")   # بلا عقل → سقالة → غير مكتمل
+        assert "أكملت" in r["reply"] or "⚠️" in r["reply"]  # يذكر عدم الاكتمال بصدق
