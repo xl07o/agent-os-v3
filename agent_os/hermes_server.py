@@ -65,7 +65,9 @@ def _agent_reply(prompt_text):
                "colleague. The message may include system notes/instructions — follow them "
                "but never repeat them back. If you don't know, say so plainly.")
     full = (f"Recent conversation:\n{ctx}\n\n" if ctx else "") + prompt_text
-    raw, engine = C.call_brain(persona, full, mode="smart")
+    # "fastest" = مزوّد واحد قوي مع تبديل تلقائي عند الفشل — أبسط وأثبت من الهجين
+    # (الوضع الهجين كان يفشل أحياناً رغم أن مزوّداً منفرداً يعمل).
+    raw, engine = C.call_brain(persona, full, mode="fastest")
     if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
         reply = ("I'm online, but no thinking brain is reachable yet. Add a free API key "
                  "(e.g. GROQ_API_KEY) to .env or start Ollama, then RESTART me so I load it.")
