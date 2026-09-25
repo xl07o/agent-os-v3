@@ -14,14 +14,15 @@ dist/
 build/
 *.egg
 
-# Project Data (user-specific)
-output/
-logs/
-skills/
-memory/
-data/
-projects/
-reports/
+# Project Data (user-specific) — anchored to repo root so they don't swallow
+# source packages of the same name (e.g. agent_os/memory/ is code, not data).
+/output/
+/logs/
+/skills/
+/memory/
+/data/
+/projects/
+/reports/
 *.log
 *.json
 !package.json
