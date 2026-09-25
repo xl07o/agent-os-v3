@@ -573,6 +573,20 @@ def run_improvement_cycle(weakness=None):
         _release_lock()
 
 
+def improve_once(quiet=False, weakness=None):
+    """واجهة موحّدة لدورة تحسين واحدة يستدعيها منسّق النواة.
+    ترجع قاموس run_improvement_cycle نفسه مضافاً إليه حقل ok صريح:
+    ok=True فقط حين طُبّق التحسين فعلاً وعبر كل البوابات (status == committed).
+    كل ما عدا ذلك (busy/no_patch/rolled_back/pending_approval) ليس نجاحاً —
+    لا نبلّغ ok=True قبل أن يُطبَّق شيء بالفعل (البند 5: لا نجاح وهمي)."""
+    res = run_improvement_cycle(weakness) or {}
+    res.setdefault("status", "unknown")
+    res["ok"] = res.get("status") == "committed"
+    if not quiet:
+        C.log(f"improve_once → {res.get('status')} (ok={res['ok']})")
+    return res
+
+
 def _improve_inner(weakness=None):
     try:
         from agent_os import benchmark

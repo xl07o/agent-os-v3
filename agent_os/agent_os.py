@@ -287,8 +287,10 @@ def execute_step(step, task, ctx):
         elif action == "browser_agent":
             from agent_os import browser_agent
             b = browser_agent.BrowserAgent("http")
-            out = {"state": b.state(), "ready": True}
-            ok = True
+            st = b.state()
+            # لا "ready": True مُلفّقة — الجاهزية من الحالة الفعلية.
+            out = {"state": st, "ready": bool(st)}
+            ok = bool(st)
         elif action == "world_model":
             from agent_os import world_model
             wm = world_model.build()
@@ -303,12 +305,20 @@ def execute_step(step, task, ctx):
             ok = True
         elif action == "tool_registry":
             from agent_os import tool_registry
-            out = {"tools": len(tool_registry.list_tools()) + 1}
+            # عدد الأدوات الحقيقي — بلا «+1» اعتباطي كان يزوّر الرقم.
+            out = {"tools": len(tool_registry.list_tools())}
             ok = True
         elif action == "self_improve_engine":
             from agent_os import self_improve_engine as sic
-            out = sic.improve_once(quiet=True) if hasattr(sic, "improve_once") else {"status": "skip", "reason": "التحسين ثقيل — متوقف"}
-            ok = True
+            out = sic.improve_once(quiet=True)
+            # تحسين حرج ينتظر موافقة المالك = إمساك بشري، لا نجاح ولا فشل.
+            if out.get("status") == "pending_approval":
+                step["done"] = False
+                step["output"] = {"held": True,
+                                  "note": "تحسين ذاتي حرج ينتظر موافقتك", **out}
+                return step
+            # ok حقيقي: طُبّق التحسين فعلاً (committed) — لا True ثابتة.
+            ok = bool(out.get("ok"))
         elif action == "product_factory":
             import json as _json
             from agent_os import product_factory
@@ -375,8 +385,59 @@ SECURITY_RULES = [
 ]
 
 
+import ast as _ast
+
+# علامات السقالة التلقائية — نصوص يضعها مولّد المخرَج حين لا محتوى حقيقي.
+_SCAFFOLD_MARKERS = (
+    "print('تم تنفيذ المهمة')",
+    'print("تم تنفيذ المهمة")',
+    "تم توليد هذا المخرَج تلقائياً بواسطة نواة Agent OS",
+    "عرض المخرجات هنا",
+    "قائمة النتائج والعيوب هنا",
+    "سجّل النقاط المستخلصة هنا",
+    "القرارات وأسبابها هنا",
+)
+
+
+def _is_scaffold_deliverable(path):
+    """هل الملف مجرّد سقالة مولّدة تلقائياً بلا مضمون حقيقي؟
+    البند 5: لا نعتبر ملفاً «دليلاً» لمجرد وجوده — لا بد أن يحمل محتوى فعلياً."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except Exception:
+        return False
+    ext = os.path.splitext(path)[1].lower()
+    marker_hit = any(m in text for m in _SCAFFOLD_MARKERS)
+
+    if ext == ".py":
+        try:
+            tree = _ast.parse(text)
+        except SyntaxError:
+            return False  # كود مكتوب فعلاً (وإن كان مكسوراً) ليس سقالة فارغة
+        real = any(isinstance(n, _ast.ClassDef) for n in tree.body)
+        for fn in [n for n in tree.body if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))]:
+            body = [b for b in fn.body
+                    if not (isinstance(b, _ast.Expr) and isinstance(b.value, _ast.Constant))]  # تجاهل docstring
+            if len(body) == 1 and isinstance(body[0], _ast.Expr) \
+                    and isinstance(body[0].value, _ast.Call) \
+                    and getattr(body[0].value.func, "id", "") == "print":
+                continue  # دالة طباعة فقط = سقالة
+            if body:
+                real = True
+        return marker_hit or not real
+
+    # نصوص/ماركداون: سقالة إن ضربت العلامات وقلّ المحتوى الحقيقي بعد إزالة القوالب.
+    if marker_hit:
+        body_lines = [ln for ln in text.splitlines()
+                      if ln.strip() and not ln.lstrip().startswith("#")
+                      and "هنا" not in ln and not ln.strip().startswith("- **")]
+        return len(" ".join(body_lines)) < 80
+    return False
+
+
 def _has_material_evidence(steps_output):
-    """دليل ملموس = مسار ملف موجود فعلاً أو ناتج نصي ذو مضمون (أكبر من فارغ)."""
+    """دليل ملموس = ملف موجود فعلاً *وبمحتوى حقيقي* (لا سقالة) أو ناتج نصي ذو مضمون."""
     for s in steps_output:
         out = s.get("output")
         if not s.get("done") or not out:
@@ -384,7 +445,7 @@ def _has_material_evidence(steps_output):
         if isinstance(out, dict):
             for key in ("path", "product", "site", "project", "bin", "dest"):
                 val = out.get(key)
-                if val and os.path.exists(str(val)):
+                if val and os.path.exists(str(val)) and not _is_scaffold_deliverable(str(val)):
                     return True
         if isinstance(out, str) and len(out.strip()) >= 40:
             return True
@@ -404,13 +465,16 @@ def critic(task, steps_output, intent="unknown"):
         if out.get("error"):
             issues.append(f"خطأ في «{s['action']}»: {out['error']}")
         for pat, note in SECURITY_RULES:
-            if re.search(pat, str(out).lower()):
+            # لا نُصغّر النص (كان يقتل قاعدة shell=True ذات الحرف الكبير)؛
+            # نطابق بلا حساسية لحالة الأحرف عبر re.I بدلاً من ذلك.
+            if re.search(pat, str(out), re.I):
                 issues.append(f"ثغرة أمنية في المخرجات: {note}")
     if done == 0:
         issues.append("لا خطوة نُفِّذت فعلياً")
     # المهمة الإنتاجية بلا دليل ملموس = اكتمال وهمي؛ لا يُعلن نجاح (§106)
     if done > 0 and intent in DELIVERABLE_INTENTS and not _has_material_evidence(steps_output):
-        issues.append("مهمة إنتاج دون مخرَج ملموس (ملف/نص) — لا يُعلَن اكتمال بلا دليل (§106)")
+        issues.append("مهمة إنتاج دون مخرَج ذي محتوى حقيقي (سقالة فارغة لا تكفي) — "
+                       "لا يُعلَن اكتمال بلا دليل؛ يلزم عقل/أدوات لإنتاج محتوى فعلي (§106)")
     verdict = {"grade": "ok" if not issues else ("risky" if warnings else "needs_revision"), "issues": issues, "warnings": warnings}
     return verdict
 
@@ -678,6 +742,27 @@ def _device_action(task):
     return {"held": True, "note": "أعد الصياغة: «شغّل <أمر>» أو «افتح <مسار/برنامج>» (أو فعّل الولوج الكامل في اللوحة)"}
 
 
+def _parse_cli_kwargs(tail):
+    """تحليل وسائط ‎--key value‎ في مرور واحد.
+    يصحّح عيبين: القديم كان يُسقط ‎--why‎ (لأن ‎"--" in list‎ يبحث عن عنصر
+    مطابق تماماً لا يبدأ بـ‎--‎)، ويعلّق للأبد على رمز ‎--‎ منفرد."""
+    kw = {}
+    i = 0
+    while i < len(tail):
+        tok = tail[i]
+        if tok.startswith("--") and len(tok) > 2:
+            name = tok[2:]
+            if i + 1 < len(tail) and not tail[i + 1].startswith("--"):
+                kw[name] = tail[i + 1]
+                i += 2
+            else:
+                kw[name] = True
+                i += 1
+        else:
+            i += 1
+    return kw
+
+
 def run_task(task, why="", workdir=None, host=None, ptype=None, use_brain=False):
     """نشّط السلسلة كاملة على مهمة (مع حلقة مراجعة حتى 2 وتصعيد بشري)."""
     r = _pre_route(task) or router(task)
@@ -778,11 +863,8 @@ if __name__ == "__main__":
         print(status())
     elif args[0] == "run":
         tail = args[1:]
-        kw = {}
-        while "--" in tail:
-            i = tail.index("--")
-            kw[tail[i + 1]] = tail[i + 2] if i + 2 < len(tail) else True
-        task_text = " ".join([a for a in tail if not a.startswith("--")])
+        kw = _parse_cli_kwargs(tail)
+        task_text = " ".join(a for a in tail if not a.startswith("--"))
         if task_text:
             print(run_task(task_text, **{k: v for k, v in kw.items() if isinstance(v, str)}))
         else:
