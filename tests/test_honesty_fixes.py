@@ -76,3 +76,24 @@ def test_tool_registry_count_not_inflated():
     from agent_os import tool_registry
     step = A.execute_step({"action": "tool_registry"}, "t", {})
     assert step["output"]["tools"] == len(tool_registry.list_tools())
+
+
+# ===== 6) توليد المخرجات بالعقل مع احتياط صادق (البند 4) =====
+def test_strip_fences():
+    assert A._strip_fences("```python\nprint(1)\n```") == "print(1)"
+    assert A._strip_fences("```\nx\n```") == "x"
+    assert A._strip_fences("بلا سور") == "بلا سور"
+
+
+def test_brain_deliverable_none_without_provider():
+    # بلا مزوّد عقل: يرجع None ليُستعمل الاحتياط الصادق — لا تلفيق محتوى.
+    import brain
+    if not brain.available_engines():
+        assert A._brain_deliverable("اكتب أداة CLI", "code", ".py") is None
+        assert A._brain_deliverable("تقرير", "report", ".md") is None
+
+
+def test_json_csv_stay_deterministic():
+    # الأنواع المنظّمة لا تمرّ عبر العقل (تبقى حتمية).
+    assert A._brain_deliverable("بيانات", "data", ".json") is None
+    assert A._brain_deliverable("بيانات", "data", ".csv") is None

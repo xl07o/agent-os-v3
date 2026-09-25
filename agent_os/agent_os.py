@@ -176,6 +176,41 @@ INTENT_DIRS = {
 }
 
 
+def _strip_fences(text):
+    """يزيل أسوار ```lang … ``` إن أحاطت المحتوى."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\n?", "", t)
+        t = re.sub(r"\n?```\s*$", "", t)
+    return t.strip()
+
+
+def _brain_deliverable(task, intent, ext):
+    """يولّد محتوى مخرَج حقيقياً عبر العقل حسب النوع (البند 4).
+    يرجع None حين لا مزوّد — فتُستعمل السقالة الصادقة بدلاً منه (لا تلفيق)."""
+    if ext == ".py":
+        sysmsg = "أنت مبرمج خبير. اكتب كوداً كاملاً قابلاً للتشغيل. أخرِج الكود فقط بلا شرح."
+        prompt = f"اكتب برنامج Python كاملاً للمهمة: «{task}». ابدأ مباشرةً بالكود."
+    elif ext in (".md", ".txt", ""):
+        sysmsg = "أنت كاتب تقني دقيق. اكتب تقريراً/محتوى حقيقياً ومفيداً بالعربية."
+        prompt = (f"أنتج محتوى ماركداون حقيقياً ومكتملاً للمهمة: «{task}» (القصد: {intent}). "
+                  "عناوين وفقرات فعلية، لا عبارات نائبة مثل «هنا».")
+    elif ext == ".html":
+        sysmsg = "أنت مطوّر ويب. أخرِج صفحة HTML كاملة صالحة فقط."
+        prompt = f"اكتب صفحة HTML كاملة للمهمة: «{task}». أخرِج الوسم فقط."
+    else:
+        return None  # json/csv تبقى منظّمة حتمياً
+
+    raw, engine = C.call_brain(sysmsg, prompt, mode="smart")
+    if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
+        return None
+    content = _strip_fences(raw)
+    if len(content) < 40:
+        return None
+    C.log(f"🧠 مخرَج مولّد بالعقل ({engine}) — {len(content)} حرفاً")
+    return content
+
+
 def _write_deliverable(task, intent="output", asked_path=None):
     """كتابة مخرَج ملموس آمن: ملف ضمن ROOT فقط، حسب النوع (py/json/csv/html/md).
     القصد يوجّه الملف إلى مجلده الطبيعي (تقرير → reports، بيانات → data، إلخ)
@@ -192,7 +227,11 @@ def _write_deliverable(task, intent="output", asked_path=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     ext = os.path.splitext(path)[1].lower()
     now = C.now_iso()
-    if ext == ".py":
+    # محتوى حقيقي بالعقل أولاً (البند 4)؛ وإلا سقالة صادقة تُعلَّم «غير مكتملة».
+    content = _brain_deliverable(task, intent, ext)
+    if content is not None:
+        pass
+    elif ext == ".py":
         content = (f'"""مخرج مولّد تلقائياً — مهمة: {task[:120]}\n'
                    f"القصد: {intent} | {now}\n\"\"\"\n\n"
                    "def main():\n    print('تم تنفيذ المهمة')\n\n"
