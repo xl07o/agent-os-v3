@@ -763,12 +763,73 @@ def _parse_cli_kwargs(tail):
     return kw
 
 
+def _recall_memory(task, intent):
+    """يقرأ الذاكرة قبل المحاولة: تجارب مشابهة + دروس فشل سابقة + أفضل استراتيجية.
+    مركز الثقل — «يُقرأ قبل كل محاولة؛ لا يتكرّر خطأ واحد مرتين»."""
+    recalled = {"similar": [], "lessons": [], "recommended_strategy": None}
+    try:
+        from agent_os.memory import contextual_memory as cm
+        for exp in cm.recall(task, limit=3):
+            recalled["similar"].append({"task": exp.get("task"),
+                                        "outcome": exp.get("outcome"),
+                                        "solution": exp.get("solution")})
+            # درس صريح من كل تجربة فشل مشابهة — لتجنّب تكرارها.
+            if exp.get("outcome") not in ("success", "verified") and exp.get("problem"):
+                recalled["lessons"].append(exp["problem"])
+    except Exception:
+        pass
+    try:
+        from agent_os.memory import strategy_memory as sm
+        best = sm.best_strategy(intent)
+        if best:
+            recalled["recommended_strategy"] = best
+    except Exception:
+        pass
+    if recalled["lessons"]:
+        C.log(f"🧠 دروس سابقة ({len(recalled['lessons'])}) محمّلة قبل التنفيذ")
+    return recalled
+
+
+def _remember_run(task, intent, result, steps, verd):
+    """يكتب الذاكرة بعد المحاولة: تجربة + نتيجة استراتيجية + دروس الفشل.
+    كل فشل يصبح درساً دائماً يُقرأ في المحاولات القادمة (البنود 3/11/12)."""
+    status = result.get("status")
+    success = status == "verified"
+    problem = "؛ ".join(verd.get("issues", []))[:300]
+    artifact = next((s.get("output", {}).get("path") for s in steps
+                     if (s.get("output") or {}).get("kind") == "artifact"
+                     and (s.get("output") or {}).get("path")), None)
+    try:
+        from agent_os.memory import contextual_memory as cm
+        cm.save_experience(
+            task=task[:200], approach=intent,
+            tools=[s["action"] for s in steps],
+            problem=problem, solution=artifact or "", outcome=status,
+        )
+    except Exception:
+        pass
+    try:
+        from agent_os.memory import strategy_memory as sm
+        sm.record_outcome(intent, "kernel_default", success)
+    except Exception:
+        pass
+    try:
+        from agent_os.memory import provenance as prov
+        if not success and problem:
+            prov.record(f"lesson:{intent}:{task[:50]}", problem,
+                        source="run_task", confidence=0.6, kind="fact")
+    except Exception:
+        pass
+
+
 def run_task(task, why="", workdir=None, host=None, ptype=None, use_brain=False):
     """نشّط السلسلة كاملة على مهمة (مع حلقة مراجعة حتى 2 وتصعيد بشري)."""
     r = _pre_route(task) or router(task)
+    recalled = _recall_memory(task, r["intent"])
     steps = plan(task, r["intent"], r["subsystems"])
     ctx = {"why": why, "workdir": workdir, "host": host, "ptype": ptype,
-           "use_brain": use_brain, "intent": r["intent"]}
+           "use_brain": use_brain, "intent": r["intent"],
+           "lessons": recalled["lessons"], "recalled": recalled}
     for _ in range(2):  # حلقة مراجعة: أعد تنفيذ الخطوات الفاشلة فقط
         for s in steps:
             if s["done"]:
@@ -811,10 +872,14 @@ def run_task(task, why="", workdir=None, host=None, ptype=None, use_brain=False)
     state["runs"].insert(0, record)
     state["runs"] = state["runs"][:100]
     _save_runs(state)
+    _remember_run(task, r["intent"], result, steps, verd)
     C.log(f"🎯 مهمة [{r['intent']}] → {result['status']}")
     _write_report(task, record)
     return {"task": task, "intent": r["intent"], "steps": record["steps"],
-            "result": result, "artifact": artifact}
+            "result": result, "artifact": artifact,
+            "recalled": {"similar": len(recalled["similar"]),
+                         "lessons": recalled["lessons"],
+                         "recommended_strategy": recalled["recommended_strategy"]}}
 
 
 def _write_report(task, record):
