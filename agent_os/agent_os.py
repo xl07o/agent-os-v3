@@ -44,6 +44,7 @@ INTENT_KEYWORDS = {
     "report": ["تقرير", "ملخص", "brief", "حالة", "ملاح HTML", "توثيق", "وثّق", "وثق", "وثّق", "دليل", "شرح", "readme", "معالجة"],
     "security": ["ثغرة", "بجتي", "bounty", "باونتي", "bug bounty", "نطاق", "اختبار أمن", "vulnerability", "بواج", "باقتي"],
     "improve": ["حسّن", "تطوير ذاتي", "تحسين", "self", "قياس", "أطور", "طور", "طورني", "اطور", "نفسي", "تحسين ذاتي"],
+    "learn": ["تعلّم", "تعلم", "اتعلم", "استوعب", "ادرس", "درّب نفسك", "learn", "اقرأ عن", "تثقّف", "تثقف", "اعرف عن"],
 }
 
 # أغراض تُنتج مَخرَجاً ملموساً (كود/بناء/تقرير/بحث/مالية/أمن): يجب دليل فعلي
@@ -80,6 +81,7 @@ def router(task):
         "report": ["chief_staff", "finance_intel", "benchmark", "world_model"],
         "security": ["bounty_engine", "world_model"],
         "improve": ["self_improve_engine", "benchmark"],
+        "learn": ["learn_topic"],
         "unknown": ["world_model"],
     }
     return {"intent": intent, "subsystems": mapping[intent]}
@@ -112,12 +114,14 @@ def plan(task, intent, subsystems):
         st = [step("bounty_intel", "فحص حالة البجتي والتفويض")]
     elif intent == "improve":
         st = [step("benchmark", "قياس الضعف")]
+    elif intent == "learn":
+        st = [step("learn_topic", "التعلّم من مصادر عامة وتخزينه بالذاكرة")]
     elif intent == "operate":
         st = [step("goal_manager", "تسجيل الهدف")]
     else:
         st = [step("world_model", "بناء الصورة")]
     raw, _ = None, None
-    if intent not in ("open", "device", "finance", "report", "security", "improve", "operate"):
+    if intent not in ("open", "device", "finance", "report", "security", "improve", "operate", "learn"):
         raw, _ = C.call_brain(
             "مخطط مهام دقيق.",
             f"ضع خطة 3-5 خطوات للمهمة: «{task}» — كل سطر: STEP: الإجراء",
@@ -233,6 +237,32 @@ def _write_deliverable(task, intent="output", asked_path=None):
         return {"path": path, "size": size, "kind": "artifact", "format": ext.lstrip(".") or "md"}
     except Exception as e:
         return {"error": f"تعذّرت الكتابة: {e}", "path": "", "kind": "artifact"}
+
+
+def _consult_brain(task, ctx=None):
+    """يسأل العقل (Claude/DeepSeek/Gemini عبر brain) عن حلّ/أدوات عند العجز،
+    ويخزّن الاقتراح في الذاكرة كمعرفة (البند 17). فشل غير قاتل، وبلا تلفيق:
+    إن لم يوجد مزوّد يُعيد ok=False مع سبب صريح."""
+    lessons = (ctx or {}).get("lessons") or []
+    hint = ("\nدروس سابقة يجب تفاديها:\n- " + "\n- ".join(lessons[:3])) if lessons else ""
+    raw, engine = C.call_brain(
+        "أنت مستشار تقني للوكيل. اقترح خطوات عملية وأدوات مفتوحة/مجانية محددة لتنفيذ المهمة.",
+        f"المهمة التي عجز الوكيل عنها: «{task}».{hint}\n"
+        "أعطِ 3-6 خطوات عملية وأسماء أدوات/حزم يمكن تركيبها.",
+        mode="smart",
+    )
+    # brain يعيد رسالة خطأ نصية (تبدأ بـ«(» وengine=none) لا None — لا نعاملها
+    # كاقتراح حقيقي (البند 5: ممنوع تلفيق نجاح من رسالة فشل).
+    if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
+        return {"ok": False, "reason": (raw or engine or "لا مزوّد عقل متاح").strip("()")[:120]}
+    suggestion = raw.strip()[:1500]
+    try:
+        from agent_os.memory import provenance
+        provenance.record(f"consult:{task[:50]}", suggestion,
+                          source=f"brain:{engine}", confidence=0.55, kind="fact")
+    except Exception:
+        pass
+    return {"ok": True, "suggestion": suggestion, "engine": engine}
 
 
 def execute_step(step, task, ctx):
@@ -361,11 +391,25 @@ def execute_step(step, task, ctx):
             prog = bounty_engine.add_program("auto", [ctx.get("host", "example.com")], None)
             out = {"program_id": prog.get("id")}
             ok = True
-        elif action == "produce_artifact":
-            out = _write_deliverable(task, ctx.get("intent", "output"))
-            ok = bool(out.get("path")) and (out.get("size") or 0) > 0
+        elif action == "learn_topic":
+            # يتعلّم من مصادر عامة ويخزّنه بالذاكرة (البند 1).
+            from agent_os.learn import ingest
+            res = ingest.learn_query(task)
+            out = res
+            ok = bool(res.get("ok"))
+        elif action == "consult":
+            # يسأل العقل (Claude/DeepSeek/Gemini) عند العجز — البند 17.
+            out = _consult_brain(task, ctx)
+            ok = bool(out.get("ok"))
         else:
-            out = {"note": f"لم أجِد منفذاً لـ {action} — مهمة معقدة للدماغ البشري", "held": True}
+            # عاجز عن تنفيذ الفعل مباشرة → يستشير العقل (البند 17) بدل الاستسلام.
+            consult = _consult_brain(task, ctx)
+            if consult.get("ok"):
+                out = {"note": f"لا منفذ مباشر لـ {action} — استشارة العقل:",
+                       "suggestion": consult.get("suggestion"), "held": True}
+            else:
+                out = {"note": f"لا منفذ مباشر لـ {action}، وتعذّرت استشارة العقل "
+                               f"({consult.get('reason', 'لا مزوّد')}) — يحتاج إنساناً", "held": True}
     except Exception as e:
         out = {"error": str(e)[:200]}
     step["done"] = ok
