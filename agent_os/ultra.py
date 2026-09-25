@@ -60,6 +60,22 @@ def cmd_say(args):
     return assistant.handle_utterance(" ".join(args))
 
 
+def cmd_finance(args):
+    """تحليل جدوى فرصة: finance "<الفكرة>" <إيراد شهري> [تكلفة] [أيام جهد]."""
+    from agent_os import finance_brain
+    nums, words = [], []
+    for a in args:
+        try:
+            nums.append(float(a))
+        except ValueError:
+            words.append(a)
+    idea = " ".join(words) or "فرصة"
+    rev = nums[0] if len(nums) > 0 else 0
+    cost = nums[1] if len(nums) > 1 else 0
+    effort = nums[2] if len(nums) > 2 else 1
+    return finance_brain.evaluate(idea, cost_usd=cost, monthly_revenue_usd=rev, effort_days=effort)
+
+
 def cmd_memory(_args):
     out = {}
     try:
@@ -97,6 +113,7 @@ def cmd_status(_args):
 COMMANDS = {
     "run": cmd_run, "learn": cmd_learn, "ingest": cmd_ingest, "idle": cmd_idle,
     "ask": cmd_ask, "say": cmd_say, "memory": cmd_memory, "status": cmd_status,
+    "finance": cmd_finance,
 }
 
 

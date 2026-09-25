@@ -39,3 +39,9 @@ def test_ask_is_honest_without_provider():
 def test_main_unknown_prints_help():
     assert ultra.main(["nope"]) == 0
     assert ultra.main([]) == 0
+
+
+def test_finance_command_parses_numbers():
+    r = ultra.cmd_finance(["أداة", "مربحة", "300", "0", "2"])
+    assert r["verdict"] in ("go", "no-go")
+    assert "roi" in r
