@@ -35,6 +35,16 @@ class Hermes:
 
     # ---- المشورة الأساسية ----
     def _ask_brain(self, prompt, mode="smart"):
+        # (أ) إن توفّر مثيل Hermes حقيقي، نستخدمه كمساعد أقوى أولاً.
+        try:
+            from agent_os import hermes_client
+            if hermes_client.available():
+                r = hermes_client.ask(f"{self.persona}\n\n{prompt}")
+                if r.get("ok"):
+                    return {"ok": True, "text": r["text"][:2000], "engine": "hermes"}
+        except Exception:
+            pass
+        # (ب) وإلا العقل متعدد المزودين (brain).
         raw, engine = C.call_brain(self.persona, prompt, mode=mode)
         if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
             return {"ok": False, "reason": (raw or "لا مزوّد عقل متاح").strip("()")[:120]}

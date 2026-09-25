@@ -1,0 +1,54 @@
+"""اختبار جسر Hermes (وكيلك كعقل لـ JARVIS) + عميل Hermes (كمساعد لوكيلك)."""
+import os, sys, tempfile, uuid, json
+os.environ.setdefault("AGENT_OS_DATA_DIR", os.path.join(tempfile.gettempdir(), "hb_" + uuid.uuid4().hex[:8]))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from agent_os import hermes_server as H
+from agent_os import hermes_client as HC
+
+
+# ===== الجسر: بروتوكول Hermes الذي تتوقّعه JARVIS =====
+def test_health_no_auth():
+    s, o = H.handle_rest("GET", "/health", "", {}, None)
+    assert s == 200 and o["platform"] == "hermes-agent"
+
+def test_capabilities_need_auth_when_key_set():
+    old = H.API_KEY
+    H.API_KEY = "k"
+    try:
+        assert H.handle_rest("GET", "/v1/capabilities", "", {}, None)[0] == 401
+        assert H.handle_rest("GET", "/v1/capabilities", "", {"Authorization": "Bearer k"}, None)[0] == 200
+    finally:
+        H.API_KEY = old
+
+def test_submit_run_202_and_events():
+    s, o = H.handle_rest("POST", "/v1/runs", "", {}, json.dumps({"input": "حالة"}))
+    assert s == 202 and o["run_id"].startswith("run_") and o["status"] == "started"
+    frames = list(H.run_frames(o["run_id"]))
+    assert frames[-1] == ": stream closed\n"
+    assert any('"run.completed"' in f for f in frames)
+    assert any('"message.delta"' in f for f in frames)
+
+def test_missing_input_400():
+    assert H.handle_rest("POST", "/v1/runs", "", {}, "{}")[0] == 400
+
+def test_run_status_and_transcript():
+    _, o = H.handle_rest("POST", "/v1/runs", "", {}, json.dumps({"input": "سجّل هدف متجر"}))
+    rid = o["run_id"]
+    s, run = H.handle_rest("GET", f"/v1/runs/{rid}", "", {}, None)
+    assert s == 200 and run["status"] == "completed" and run["output"]
+    s2, msgs = H.handle_rest("GET", f"/api/sessions/{rid}/messages", "", {}, None)
+    assert s2 == 200 and len(msgs["data"]) == 2
+
+def test_unknown_run_404():
+    assert H.handle_rest("GET", "/v1/runs/run_nope", "", {}, None)[0] == 404
+
+
+# ===== العميل: Hermes كمساعد (بلا مثيل حيّ = صدق) =====
+def test_client_unavailable_is_honest():
+    # لا مثيل Hermes في الاختبار → available False و ask يرجع سبباً
+    if not HC.available():
+        r = HC.ask("مرحبا")
+        assert r["ok"] is False and r.get("reason")
+
+def test_client_empty_prompt():
+    assert HC.ask("")["ok"] is False
