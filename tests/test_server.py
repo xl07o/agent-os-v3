@@ -32,3 +32,22 @@ def test_unknown_api_404():
 
 def test_ui_file_exists():
     assert os.path.isfile(os.path.join(server.WEB_DIR, "jarvis.html"))
+
+
+# ===== النقاط العالمية للربط بواجهات JARVIS خارجية =====
+def test_chat_accepts_various_input_keys():
+    for key in ("message", "text", "prompt", "input", "q"):
+        s, _, data = server.handle_api("/chat", "", json.dumps({key: "حالة"}))
+        assert s == 200
+        d = json.loads(data)
+        # يردّ بكل المفاتيح الشائعة
+        for out in ("reply", "response", "text", "answer"):
+            assert d.get(out)
+
+def test_chat_alias_api_chat():
+    s, _, _ = server.handle_api("/api/chat", "", json.dumps({"message": "حالة"}))
+    assert s == 200
+
+def test_chat_empty_400_with_reply():
+    s, _, data = server.handle_api("/chat", "", json.dumps({"message": ""}))
+    assert s == 400 and json.loads(data).get("reply")
