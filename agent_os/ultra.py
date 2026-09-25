@@ -76,6 +76,12 @@ def cmd_finance(args):
     return finance_brain.evaluate(idea, cost_usd=cost, monthly_revenue_usd=rev, effort_days=effort)
 
 
+def cmd_demo(_args):
+    """عرض حيّ لكل القدرات بلا إعداد."""
+    from agent_os import demo
+    return demo.run()
+
+
 def cmd_doctor(_args):
     """فحص ذاتي شامل: يثبت أن كل نظام فرعي يعمل، ويخبر بصدق بما ينقص."""
     from agent_os import selfcheck
@@ -132,7 +138,7 @@ COMMANDS = {
     "run": cmd_run, "learn": cmd_learn, "ingest": cmd_ingest, "idle": cmd_idle,
     "ask": cmd_ask, "say": cmd_say, "memory": cmd_memory, "status": cmd_status,
     "finance": cmd_finance, "tick": cmd_tick, "daemon": cmd_daemon,
-    "doctor": cmd_doctor,
+    "doctor": cmd_doctor, "demo": cmd_demo,
 }
 
 
