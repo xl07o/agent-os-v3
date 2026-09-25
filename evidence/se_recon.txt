@@ -1,0 +1,147 @@
+
+🔍 استطلاع example.org...
+  ✓ DNS و SSL
+  ✓ هيدرز
+  ✓ نطاقات فرعية: 1
+  ✓ مسارات: 24
+  ✓ محفوظ: C:\Users\hhdjj\ai-agent\ai-agent-main\data\recon\example_org.json
+{
+  "domain": "example.org",
+  "date": "2026-09-12T22:20:40.288292",
+  "dns": {
+    "ip": "104.20.26.136",
+    "ipv6": true
+  },
+  "ssl": {
+    "valid": true,
+    "expires": "Oct 27 21:29:51 2026 GMT",
+    "subject": {
+      "commonName": "example.org"
+    },
+    "issuer": {
+      "countryName": "US",
+      "organizationName": "SSL Corporation",
+      "commonName": "Cloudflare TLS Issuing ECC CA 3"
+    }
+  },
+  "headers": {
+    "status": 200,
+    "headers": {},
+    "url": "https://example.org",
+    "scheme": "https"
+  },
+  "security_headers": {
+    "missing": [
+      "Strict-Transport-Security",
+      "Content-Security-Policy",
+      "X-Frame-Options",
+      "X-Content-Type-Options",
+      "Referrer-Policy",
+      "Permissions-Policy",
+      "X-XSS-Protection"
+    ],
+    "present": [],
+    "score": 0.0
+  },
+  "subdomains": [
+    "(الرابط محظور لأسباب أمان — تعذر حل DNS): https://api.hackertarget.com/hostsearch/?q=example.org"
+  ],
+  "paths": [
+    {
+      "path": "/.git/HEAD",
+      "status": 200
+    },
+    {
+      "path": "/.env",
+      "status": 200
+    },
+    {
+      "path": "/robots.txt",
+      "status": 200
+    },
+    {
+      "path": "/sitemap.xml",
+      "status": 200
+    },
+    {
+      "path": "/admin",
+      "status": 200
+    },
+    {
+      "path": "/admin/login",
+      "status": 200
+    },
+    {
+      "path": "/wp-admin",
+      "status": 200
+    },
+    {
+      "path": "/api",
+      "status": 200
+    },
+    {
+      "path": "/api/v1",
+      "status": 200
+    },
+    {
+      "path": "/.well-known/security.txt",
+      "status": 200
+    },
+    {
+      "path": "/security.txt",
+      "status": 200
+    },
+    {
+      "path": "/phpinfo.php",
+      "status": 200
+    },
+    {
+      "path": "/info.php",
+      "status": 200
+    },
+    {
+      "path": "/test.php",
+      "status": 200
+    },
+    {
+      "path": "/backup",
+      "status": 200
+    },
+    {
+      "path": "/backup.zip",
+      "status": 200
+    },
+    {
+      "path": "/db.sql",
+      "status": 200
+    },
+    {
+      "path": "/swagger",
+      "status": 200
+    },
+    {
+      "path": "/swagger-ui",
+      "status": 200
+    },
+    {
+      "path": "/api-docs",
+      "status": 200
+    },
+    {
+      "path": "/graphql",
+      "status": 200
+    },
+    {
+      "path": "/graphiql",
+      "status": 200
+    },
+    {
+      "path": "/.DS_Store",
+      "status": 200
+    },
+    {
+      "path": "/web.config",
+      "status": 200
+    }
+  ]
+}

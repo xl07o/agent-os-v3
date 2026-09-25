@@ -1,0 +1,21 @@
+[2026-09-12 22:16:37] [INFO] 🚨 فحص صحّة فشل: ملف مالية غير موجود (C:\Users\hhdjj\ai-agent\ai-agent-main\data\agent_os\finance.json)
+{
+ "cycle": [
+  [
+   "finance",
+   {
+    "self_earned_usd": 0.0,
+    "spent_today_usd": 0.0,
+    "income_today_usd": 0,
+    "budget_remaining_today": 2.0,
+    "free_calls_today": 0,
+    "free_savings_usd": 0.0
+   }
+  ],
+  [
+   "pending_approvals",
+   6
+  ]
+ ],
+ "mode": "single"
+}

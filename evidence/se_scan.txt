@@ -1,0 +1,5 @@
+
+🔎 فحص example.org...
+  ✓ محفوظ: C:\Users\hhdjj\ai-agent\ai-agent-main\data\scans\example_org_scan.json
+
+النتائج: 0 ثغرة

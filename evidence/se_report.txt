@@ -1,0 +1,3 @@
+تقرير تجريبي
+عربي: C:\Users\hhdjj\ai-agent\ai-agent-main\data\security_reports\example_com_ar.md
+إنجليزي: C:\Users\hhdjj\ai-agent\ai-agent-main\data\security_reports\example_com_en.md

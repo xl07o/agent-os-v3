@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent OS · مركز التحكم</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@200;300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --void:#060912;
+    --deep:#0a0f1f;
+    --deep2:#0d1428;
+    --panel:rgba(19,28,53,.55);
+    --panel-solid:#111a30;
+    --line:rgba(122,160,255,.12);
+    --line-strong:rgba(122,160,255,.22);
+    --cyan:#34e5ff;
+    --cyan-dim:#1c9fc0;
+    --violet:#9d7bff;
+    --gold:#f6c453;
+    --emerald:#37e0a0;
+    --coral:#ff6b8a;
+    --text:#e8eeff;
+    --muted:#8a97bd;
+    --muted-dim:#5c6786;
+    --ar:'IBM Plex Sans Arabic',system-ui,sans-serif;
+    --num:'Space Grotesk','IBM Plex Sans Arabic',sans-serif;
+    --sb:288px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:var(--ar);
+    background:var(--void);
+    color:var(--text);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.6;
+  }
+  #bg3d{position:fixed;inset:0;z-index:0;display:block}
+  .glow-layer{
+    position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:
+      radial-gradient(1100px 700px at 78% -10%, rgba(52,229,255,.10), transparent 60%),
+      radial-gradient(900px 600px at 10% 110%, rgba(157,123,255,.10), transparent 60%),
+      radial-gradient(700px 500px at 50% 50%, rgba(10,15,31,.0), rgba(6,9,18,.55) 90%);
+  }
+  ::selection{background:rgba(52,229,255,.28);color:#fff}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:rgba(122,160,255,.18);border-radius:20px;border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(122,160,255,.32);background-clip:content-box}
+
+  /* ===== SHELL ===== */
+  .shell{position:relative;z-index:2;height:100vh;display:grid;grid-template-columns:var(--sb) 1fr;grid-template-rows:64px 1fr;grid-template-areas:"top top" "side main"}
+  .topbar{grid-area:top;display:flex;align-items:center;gap:18px;padding:0 22px;border-bottom:1px solid var(--line);background:rgba(8,12,24,.62);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+  .brand{display:flex;align-items:center;gap:12px;margin-inline-start:auto}
+  .brand .mark{width:34px;height:34px;border-radius:10px;position:relative;display:grid;place-items:center;background:linear-gradient(140deg,rgba(52,229,255,.25),rgba(157,123,255,.25));border:1px solid var(--line-strong);box-shadow:0 0 22px rgba(52,229,255,.28), inset 0 0 14px rgba(52,229,255,.15)}
+  .brand .mark::after{content:"";width:12px;height:12px;border-radius:50%;background:radial-gradient(circle,#fff,var(--cyan) 60%,transparent);box-shadow:0 0 12px var(--cyan)}
+  .brand b{font-weight:700;font-size:15px;letter-spacing:.2px}
+  .brand span{font-size:11px;color:var(--muted);font-family:var(--num)}
+  .tb-stat{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);padding:6px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02)}
+  .tb-stat b{color:var(--text);font-weight:600;font-family:var(--num)}
+  .tb-stat .dot{width:7px;height:7px;border-radius:50%;background:var(--emerald);box-shadow:0 0 10px var(--emerald)}
+  .tb-clock{font-family:var(--num);font-size:13px;color:var(--muted);letter-spacing:.5px}
+  .live-pill{display:flex;align-items:center;gap:7px;font-size:12px;padding:6px 13px;border-radius:20px;background:rgba(55,224,160,.08);border:1px solid rgba(55,224,160,.28);color:var(--emerald);font-weight:600}
+  .live-pill .pulse{width:7px;height:7px;border-radius:50%;background:var(--emerald);box-shadow:0 0 0 0 rgba(55,224,160,.5);animation:pp 2s infinite}
+  @keyframes pp{0%{box-shadow:0 0 0 0 rgba(55,224,160,.45)}70%{box-shadow:0 0 0 8px rgba(55,224,160,0)}100%{box-shadow:0 0 0 0 rgba(55,224,160,0)}}
+
+  /* ===== SIDEBAR ===== */
+  .sidebar{grid-area:side;border-inline-end:1px solid var(--line);background:rgba(8,12,24,.5);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);padding:18px 14px;display:flex;flex-direction:column;gap:4px;overflow-y:auto}
+  .nav-group-t{font-size:10.5px;color:var(--muted-dim);font-weight:600;letter-spacing:1px;padding:14px 12px 6px}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:12px;cursor:pointer;color:var(--muted);font-size:14px;font-weight:500;transition:background .18s,color .18s;border:1px solid transparent;position:relative}
+  .nav-item svg{width:19px;height:19px;flex-shrink:0;stroke-width:1.6}
+  .nav-item:hover{background:rgba(122,160,255,.06);color:var(--text)}
+  .nav-item.active{background:linear-gradient(100deg,rgba(52,229,255,.14),rgba(157,123,255,.10));color:#fff;border-color:var(--line-strong)}
+  .nav-item.active::before{content:"";position:absolute;inset-inline-start:-14px;top:50%;transform:translateY(-50%);width:3px;height:22px;border-radius:4px;background:linear-gradient(var(--cyan),var(--violet));box-shadow:0 0 12px var(--cyan)}
+  .nav-item .badge{margin-inline-start:auto;font-family:var(--num);font-size:11px;background:rgba(255,255,255,.07);padding:1px 8px;border-radius:20px;color:var(--muted)}
+  .nav-item.active .badge{background:rgba(52,229,255,.18);color:var(--cyan)}
+  .sb-foot{margin-top:auto;padding:14px 12px 4px;font-size:11px;color:var(--muted-dim);line-height:1.7}
+  .sb-foot .guard{display:flex;align-items:center;gap:7px;color:var(--emerald);margin-bottom:6px;font-weight:600;font-size:11.5px}
+  .sb-foot .guard svg{width:14px;height:14px}
+
+  /* ===== MAIN ===== */
+  .main{grid-area:main;overflow-y:auto;padding:26px 30px 60px;position:relative}
+  .panel{display:none;animation:fade .4s ease}
+  .panel.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .phead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+  .phead h1{font-size:25px;font-weight:700;letter-spacing:-.2px}
+  .phead p{color:var(--muted);font-size:13.5px;margin-top:4px;max-width:60ch}
+  .src-tag{display:inline-flex;align-items:center;gap:6px;font-family:var(--num);font-size:11px;color:var(--cyan-dim);background:rgba(52,229,255,.06);border:1px solid rgba(52,229,255,.16);padding:4px 10px;border-radius:8px}
+  .src-tag svg{width:12px;height:12px}
+
+  /* cards */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:20px}
+  .grid{display:grid;gap:16px}
+  .g-2{grid-template-columns:repeat(2,1fr)}
+  .g-3{grid-template-columns:repeat(3,1fr)}
+  .g-4{grid-template-columns:repeat(4,1fr)}
+  .g-5{grid-template-columns:repeat(5,1fr)}
+
+  /* ===== OVERVIEW / CORE ===== */
+  .core-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:20px;margin-bottom:20px}
+  .core-stage{position:relative;border-radius:22px;border:1px solid var(--line);overflow:hidden;min-height:340px;background:radial-gradient(120% 90% at 50% 40%,rgba(52,229,255,.05),transparent 70%),linear-gradient(180deg,rgba(13,20,40,.4),rgba(8,12,24,.6))}
+  #coreCanvas{position:absolute;inset:0;width:100%;height:100%}
+  .core-hud{position:absolute;inset:0;padding:20px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}
+  .core-hud .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .core-title{font-size:13px;color:var(--muted)}
+  .core-title b{display:block;font-size:20px;color:#fff;font-weight:700;margin-top:2px}
+  .core-state{display:flex;align-items:center;gap:8px;background:rgba(6,9,18,.6);border:1px solid rgba(55,224,160,.3);border-radius:20px;padding:6px 13px;font-size:12.5px;color:var(--emerald);font-weight:600;backdrop-filter:blur(8px)}
+  .core-metrics{display:flex;gap:22px;flex-wrap:wrap}
+  .cm{}
+  .cm .n{font-family:var(--num);font-size:26px;font-weight:600;color:#fff;line-height:1}
+  .cm .l{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .cm.cy .n{color:var(--cyan)} .cm.vi .n{color:var(--violet)} .cm.go .n{color:var(--gold)}
+
+  .side-stack{display:flex;flex-direction:column;gap:16px}
+  .prov-box .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .prov-box .ph b{font-size:14px}
+  .prov-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line)}
+  .prov-row:last-child{border-bottom:0}
+  .prov-row .st{width:8px;height:8px;border-radius:50%}
+  .st.up{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
+  .st.warn{background:var(--gold);box-shadow:0 0 8px var(--gold)}
+  .st.down{background:var(--muted-dim)}
+  .st.off{background:var(--coral)}
+  .prov-row .nm{font-size:13.5px;font-weight:500}
+  .prov-row .tag{margin-inline-start:auto;font-size:11px;color:var(--muted);font-family:var(--num)}
+  .prov-row .badge-live{color:var(--emerald)} .prov-row .badge-off{color:var(--coral)}
+
+  /* stat cards */
+  .stat{position:relative;border-radius:16px;border:1px solid var(--line);background:var(--panel);padding:18px;overflow:hidden;transition:transform .25s,border-color .25s;cursor:default}
+  .stat:hover{transform:translateY(-3px);border-color:var(--line-strong)}
+  .stat .ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;margin-bottom:14px;border:1px solid var(--line)}
+  .stat .ic svg{width:19px;height:19px;stroke-width:1.7}
+  .stat .val{font-family:var(--num);font-size:30px;font-weight:600;line-height:1}
+  .stat .lab{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .stat .sub{font-size:11px;color:var(--muted-dim);margin-top:8px;font-family:var(--num)}
+  .stat .beam{position:absolute;inset-block:0;inset-inline-start:0;width:3px;border-radius:4px}
+  .tc-cyan{color:var(--cyan)} .bg-cyan{background:rgba(52,229,255,.10)} .bm-cyan{background:linear-gradient(var(--cyan),transparent)}
+  .tc-violet{color:var(--violet)} .bg-violet{background:rgba(157,123,255,.10)} .bm-violet{background:linear-gradient(var(--violet),transparent)}
+  .tc-gold{color:var(--gold)} .bg-gold{background:rgba(246,196,83,.10)} .bm-gold{background:linear-gradient(var(--gold),transparent)}
+  .tc-emerald{color:var(--emerald)} .bg-emerald{background:rgba(55,224,160,.10)} .bm-emerald{background:linear-gradient(var(--emerald),transparent)}
+  .tc-coral{color:var(--coral)} .bg-coral{background:rgba(255,107,138,.10)} .bm-coral{background:linear-gradient(var(--coral),transparent)}
+
+  /* section title */
+  .sec-t{display:flex;align-items:center;gap:10px;margin:26px 0 14px;font-size:15px;font-weight:600}
+  .sec-t .ln{flex:1;height:1px;background:var(--line)}
+
+  /* activity feed */
+  .feed{display:flex;flex-direction:column}
+  .feed-row{display:flex;gap:14px;padding:12px 0;border-bottom:1px dashed var(--line)}
+  .feed-row:last-child{border-bottom:0}
+  .feed-row .lvl{width:8px;height:8px;border-radius:50%;margin-top:7px;flex-shrink:0}
+  .lvl.info{background:var(--cyan)} .lvl.warn{background:var(--gold)} .lvl.critical{background:var(--coral)}
+  .feed-row .body{flex:1}
+  .feed-row .ev{font-size:13.5px}
+  .feed-row .meta{font-size:11px;color:var(--muted-dim);font-family:var(--num);margin-top:3px;display:flex;gap:10px}
+
+  /* ===== CHAT ===== */
+  .chat-wrap{display:grid;grid-template-columns:1fr 300px;gap:18px;height:calc(100vh - 156px)}
+  .chat-main{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:18px;background:var(--panel);overflow:hidden}
+  .chat-scroll{flex:1;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:16px}
+  .msg{max-width:74%;padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.7;position:relative;animation:fade .3s ease}
+  .msg.me{align-self:flex-start;background:linear-gradient(135deg,rgba(52,229,255,.16),rgba(157,123,255,.12));border:1px solid var(--line-strong);border-bottom-inline-start:4px solid var(--cyan)}
+  .msg.bot{align-self:flex-end;background:rgba(255,255,255,.03);border:1px solid var(--line)}
+  .msg .who{font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  .step-line{align-self:flex-end;max-width:78%;display:flex;gap:11px;align-items:flex-start;padding:9px 14px;background:rgba(9,14,28,.5);border:1px solid var(--line);border-radius:13px;font-size:13px;animation:fade .3s ease}
+  .step-line .sdot{width:20px;height:20px;border-radius:7px;flex-shrink:0;display:grid;place-items:center;background:rgba(52,229,255,.12);color:var(--cyan);font-family:var(--num);font-size:11px;font-weight:600;margin-top:1px}
+  .step-line .stx{color:var(--muted)}
+  .step-line.done .sdot{background:rgba(55,224,160,.14);color:var(--emerald)}
+  .step-line.done .stx{color:var(--emerald);font-weight:600}
+  .chat-input{border-top:1px solid var(--line);padding:14px 16px;display:flex;gap:12px;align-items:flex-end;background:rgba(8,12,24,.5)}
+  .chat-input textarea{flex:1;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:13px;color:var(--text);font-family:var(--ar);font-size:14px;padding:12px 15px;resize:none;height:48px;max-height:130px;line-height:1.6;transition:border-color .2s}
+  .chat-input textarea:focus{outline:none;border-color:rgba(52,229,255,.4)}
+  .send-btn{width:48px;height:48px;border-radius:13px;border:1px solid var(--line-strong);background:linear-gradient(135deg,var(--cyan),var(--violet));display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:transform .15s,box-shadow .2s;box-shadow:0 6px 20px rgba(52,229,255,.25)}
+  .send-btn:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(52,229,255,.4)}
+  .send-btn:active{transform:translateY(0)}
+  .send-btn svg{width:20px;height:20px;stroke:#04121a;stroke-width:2}
+  .send-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  .chat-side{display:flex;flex-direction:column;gap:14px}
+  .csbox{border:1px solid var(--line);border-radius:15px;background:var(--panel);padding:16px}
+  .csbox h4{font-size:12px;color:var(--muted);margin-bottom:12px;font-weight:600;letter-spacing:.3px}
+  .kv{display:flex;justify-content:space-between;padding:7px 0;font-size:13px;border-bottom:1px dashed var(--line)}
+  .kv:last-child{border-bottom:0}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-family:var(--num);font-weight:600}
+  .quick-cmds{display:flex;flex-direction:column;gap:8px}
+  .qcmd{text-align:start;padding:10px 13px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.02);color:var(--text);font-size:13px;cursor:pointer;transition:background .18s,border-color .18s;font-family:var(--ar)}
+  .qcmd:hover{background:rgba(52,229,255,.07);border-color:var(--line-strong)}
+  .qcmd code{font-family:var(--num);font-size:11.5px;color:var(--cyan);display:block;margin-top:2px}
+
+  /* ===== LISTS / ROWS ===== */
+  .list{display:flex;flex-direction:column;gap:12px}
+  .row-card{border:1px solid var(--line);border-radius:15px;background:var(--panel);padding:17px 19px;transition:border-color .2s}
+  .row-card:hover{border-color:var(--line-strong)}
+  .rc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+  .rc-title{font-size:15px;font-weight:600}
+  .rc-desc{font-size:13px;color:var(--muted);margin-top:5px;line-height:1.7}
+  .pill{font-size:11px;padding:3px 11px;border-radius:20px;font-weight:600;white-space:nowrap;font-family:var(--ar)}
+  .pill.active,.pill.validated,.pill.ready,.pill.built,.pill.up{background:rgba(55,224,160,.12);color:var(--emerald);border:1px solid rgba(55,224,160,.25)}
+  .pill.pending{background:rgba(246,196,83,.12);color:var(--gold);border:1px solid rgba(246,196,83,.25)}
+  .pill.paused,.pill.denied,.pill.rejected,.pill.duplicate{background:rgba(255,107,138,.1);color:var(--coral);border:1px solid rgba(255,107,138,.22)}
+  .pill.high{background:rgba(255,107,138,.12);color:var(--coral);border:1px solid rgba(255,107,138,.25)}
+  .pill.medium{background:rgba(246,196,83,.12);color:var(--gold);border:1px solid rgba(246,196,83,.25)}
+  .pill.low{background:rgba(52,229,255,.1);color:var(--cyan);border:1px solid rgba(52,229,255,.22)}
+  .pill.neutral{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid var(--line)}
+  .btn{padding:8px 16px;border-radius:11px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);transition:all .18s;font-family:var(--ar)}
+  .btn:hover{border-color:var(--line-strong);background:rgba(255,255,255,.06)}
+  .btn.primary{background:linear-gradient(135deg,rgba(52,229,255,.22),rgba(157,123,255,.18));border-color:var(--line-strong);color:#fff}
+  .btn.primary:hover{box-shadow:0 6px 18px rgba(52,229,255,.25)}
+  .btn.good{color:var(--emerald);border-color:rgba(55,224,160,.3);background:rgba(55,224,160,.06)}
+  .btn.good:hover{background:rgba(55,224,160,.14)}
+  .btn.bad{color:var(--coral);border-color:rgba(255,107,138,.3);background:rgba(255,107,138,.06)}
+  .btn.bad:hover{background:rgba(255,107,138,.14)}
+  .btn.sm{padding:6px 12px;font-size:12px}
+  .btn-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+  .chip{font-family:var(--num);font-size:11.5px;padding:4px 10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid var(--line);color:var(--muted)}
+  .chip.lock{color:var(--emerald);border-color:rgba(55,224,160,.2)}
+
+  /* finance */
+  .money-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:8px}
+  .fin-big{grid-column:span 2;padding:24px}
+  .fin-big .lab{font-size:13px;color:var(--muted)}
+  .fin-big .amt{font-family:var(--num);font-size:44px;font-weight:600;margin-top:8px;line-height:1}
+  .fin-big .amt small{font-size:20px;color:var(--muted);font-weight:400}
+  .bar-track{height:9px;border-radius:20px;background:rgba(255,255,255,.05);overflow:hidden;margin-top:18px}
+  .bar-fill{height:100%;border-radius:20px;background:linear-gradient(90deg,var(--emerald),var(--cyan))}
+  .txn{display:flex;align-items:center;gap:13px;padding:12px 0;border-bottom:1px dashed var(--line)}
+  .txn:last-child{border-bottom:0}
+  .txn .ti{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex-shrink:0}
+  .txn .ti svg{width:16px;height:16px;stroke-width:1.8}
+  .txn .info{flex:1}
+  .txn .info .t{font-size:13.5px;font-weight:500}
+  .txn .info .m{font-size:11px;color:var(--muted-dim);font-family:var(--num);margin-top:2px}
+  .txn .amt{font-family:var(--num);font-weight:600;font-size:15px}
+
+  /* settings */
+  .seg{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .seg button{padding:10px 18px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.02);color:var(--muted);cursor:pointer;font-size:13.5px;font-weight:500;transition:all .18s;font-family:var(--ar)}
+  .seg button.on{background:linear-gradient(135deg,rgba(52,229,255,.16),rgba(157,123,255,.12));color:#fff;border-color:var(--line-strong)}
+  .set-row{display:flex;align-items:center;justify-content:space-between;padding:16px 0;border-bottom:1px dashed var(--line);gap:20px}
+  .set-row:last-child{border-bottom:0}
+  .set-row .sl{font-size:14px;font-weight:500}
+  .set-row .sd{font-size:12px;color:var(--muted);margin-top:3px;max-width:52ch}
+  .toggle{width:48px;height:27px;border-radius:20px;background:rgba(255,255,255,.08);border:1px solid var(--line);cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}
+  .toggle.on{background:linear-gradient(90deg,var(--cyan),var(--violet))}
+  .toggle::after{content:"";position:absolute;top:2px;inset-inline-end:2px;width:21px;height:21px;border-radius:50%;background:#fff;transition:inset-inline-end .2s}
+  .toggle.on::after{inset-inline-end:23px}
+  .slider{flex:1;max-width:220px;-webkit-appearance:none;height:6px;border-radius:20px;background:rgba(255,255,255,.08);outline:none}
+  .slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 10px var(--cyan)}
+
+  /* modal */
+  .modal-bg{position:fixed;inset:0;z-index:50;background:rgba(3,6,14,.7);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:24px;animation:fade .25s}
+  .modal-bg.on{display:flex}
+  .modal{width:min(760px,100%);max-height:86vh;overflow-y:auto;background:var(--deep2);border:1px solid var(--line-strong);border-radius:20px;padding:26px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .modal-h{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+  .modal-h h3{font-size:19px;font-weight:700}
+  .x-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);cursor:pointer;display:grid;place-items:center;flex-shrink:0}
+  .x-btn:hover{color:var(--text);border-color:var(--line-strong)}
+  .report-body{background:rgba(6,9,18,.6);border:1px solid var(--line);border-radius:13px;padding:18px;font-family:var(--num);font-size:12.5px;line-height:1.9;white-space:pre-wrap;color:var(--muted);max-height:340px;overflow-y:auto;direction:ltr;text-align:start}
+  .guide-box{background:rgba(52,229,255,.05);border:1px solid rgba(52,229,255,.16);border-radius:13px;padding:16px;font-size:13px;line-height:1.9;margin-top:16px;white-space:pre-wrap}
+  .warn-strip{display:flex;align-items:center;gap:10px;background:rgba(246,196,83,.08);border:1px solid rgba(246,196,83,.24);border-radius:12px;padding:12px 15px;font-size:12.5px;color:var(--gold);margin-top:16px}
+  .warn-strip svg{width:18px;height:18px;flex-shrink:0}
+
+  /* toast */
+  .toast-wrap{position:fixed;bottom:24px;inset-inline-start:24px;z-index:60;display:flex;flex-direction:column;gap:10px}
+  .toast{background:var(--deep2);border:1px solid var(--line-strong);border-inline-start:4px solid var(--cyan);border-radius:13px;padding:13px 18px;font-size:13.5px;box-shadow:0 16px 40px rgba(0,0,0,.5);animation:slideIn .3s ease;max-width:340px;display:flex;align-items:center;gap:10px}
+  .toast.good{border-inline-start-color:var(--emerald)} .toast.good svg{color:var(--emerald)}
+  .toast.warn{border-inline-start-color:var(--gold)} .toast.warn svg{color:var(--gold)}
+  .toast svg{width:18px;height:18px;flex-shrink:0;color:var(--cyan)}
+  @keyframes slideIn{from{transform:translateX(-30px);opacity:0}to{transform:none;opacity:1}}
+
+  .empty{text-align:center;padding:50px 20px;color:var(--muted)}
+  .empty svg{width:44px;height:44px;stroke-width:1.3;color:var(--muted-dim);margin-bottom:14px}
+  .empty p{font-size:14px}
+  .empty small{font-size:12px;color:var(--muted-dim);display:block;margin-top:6px}
+
+  .mono{font-family:var(--num)}
+  .scope-list{max-height:180px;overflow-y:auto}
+
+  /* responsive */
+  @media(max-width:1080px){
+    .shell{grid-template-columns:1fr;grid-template-areas:"top" "main"}
+    .sidebar{position:fixed;inset-block:0;inset-inline-start:0;width:min(280px,84vw);z-index:40;transform:translateX(100%);transition:transform .3s;box-shadow:-24px 0 70px rgba(0,0,0,.55)}
+    .sidebar.open{transform:none}
+    .scrim.on{display:block}
+    .core-wrap{grid-template-columns:1fr}
+    .chat-wrap{grid-template-columns:1fr}
+    .chat-side{display:none}
+    .money-hero{grid-template-columns:1fr 1fr}
+    .fin-big{grid-column:span 2}
+    .menu-btn{display:grid!important}
+  }
+  @media(max-width:680px){
+    .main{padding:18px 16px 50px}
+    .g-4,.g-5,.g-3,.g-2{grid-template-columns:1fr 1fr}
+    .money-hero{grid-template-columns:1fr}
+    .fin-big{grid-column:span 1}
+    .tb-stat.hide-sm{display:none}
+  }
+  .menu-btn{display:none;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);cursor:pointer;place-items:center}
+  .menu-btn svg{width:20px;height:20px}
+  .scrim{display:none;position:fixed;inset:0;z-index:39;background:rgba(4,7,14,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="bg3d"></canvas>
+<div class="glow-layer"></div>
+
+<div class="shell">
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <button class="menu-btn" onclick="toggleMenu()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h18M3 6h18M3 18h18" stroke-width="1.8"/></svg>
+    </button>
+    <div class="live-pill"><span class="pulse"></span> الوكيل نشط</div>
+    <div class="tb-stat hide-sm"><span class="dot"></span> المزود: <b id="tbProvider">Gemini</b></div>
+    <div class="tb-stat hide-sm">تكلفة اليوم: <b id="tbCost">$0.00</b> / $2</div>
+    <div class="tb-stat hide-sm tb-access" id="tbAccess" onclick="toggleAccess()" title="أعطِ الوكيل ولوجاً كاملاً مثل جارفس (بموافقتك الصريحة). الأوامر القاتلة تبقى محجوبة دائماً." style="cursor:pointer;user-select:none">
+      <span id="accDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#37d0c4;margin-left:6px"></span>
+      <span id="accLabel">الولوج: كامل</span>
+    </div>
+    <div class="tb-clock" id="clock">--:--:--</div>
+    <div class="brand">
+      <div style="text-align:start">
+        <b>Agent OS</b>
+        <span>SelfRunner v3</span>
+      </div>
+      <div class="mark"></div>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="nav-group-t">القيادة</div>
+    <div class="nav-item active" data-panel="overview">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      نظرة عامة
+    </div>
+    <div class="nav-item" data-panel="chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      المحادثة
+    </div>
+
+    <div class="nav-group-t">العمليات</div>
+    <div class="nav-item" data-panel="money">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      المال <span class="badge" id="bMoney">$0</span>
+    </div>
+    <div class="nav-item" data-panel="goals">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>
+      الأهداف <span class="badge" id="bGoals">0</span>
+    </div>
+    <div class="nav-item" data-panel="approvals">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      الموافقات <span class="badge" id="bApprovals">0</span>
+    </div>
+    <div class="nav-item" data-panel="bounty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      المكافآت <span class="badge" id="bBounty">0</span>
+    </div>
+
+    <div class="nav-group-t">المراقبة</div>
+    <div class="nav-item" data-panel="products">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg>
+      المنتجات <span class="badge" id="bProducts">0</span>
+    </div>
+    <div class="nav-item" data-panel="log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></svg>
+      سجل النشاط
+    </div>
+    <div class="nav-item" data-panel="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      الإعدادات
+    </div>
+
+    <div class="sb-foot">
+      <div class="guard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-width="1.6"/><path d="M9 12l2 2 4-4" stroke-width="1.6"/></svg>
+        محمي · بلا كلمات مرور
+      </div>
+      يعمل محلياً على 127.0.0.1<br>الرفع الأمني يدوي دائماً
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" onclick="toggleMenu(false)"></div>
+
+  <!-- MAIN -->
+  <main class="main" id="main"></main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modalBody"></div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =========================================================================
+   عقود البيانات — بيانات تجريبية مطابقة تماماً لأسماء المفاتيح في المرجع.
+   عند الربط بالوكيل الحقيقي، استبدل قيم DATA من نقاط API (اقرأ آخر الملف).
+   ========================================================================= */
+const DATA = {
+  // world_state.json
+  world: {
+    built:"2026-09-13T02:14:00", day:"2026-09-13",
+    goals:{total:21},
+    subsystems:{
+      "agent_os.product_factory":{count:12},
+      "agent_os.approval_center":{count:7},
+      "agent_os.goal_manager":{count:21},
+      "agent_os.tool_registry":{count:34},
+      "agent_os.bounty_engine":{count:1}
+    },
+    products:12, deploys:3, tools:34, requests_pending:7,
+    findings:1, txns:4, intel:{news:5, hn:8},
+    modules:92, uptime_cycles:148, last_heartbeat:"قبل ٢ دقيقة"
+  },
+  // مزودو الذكاء (8) — حالة فقط، بلا مفاتيح
+  providers:[
+    {name:"Gemini", model:"gemini-3.6-flash", status:"up", note:"يعمل حي · مجاني", active:true},
+    {name:"NVIDIA NIM", model:"nemotron-3-ultra", status:"up", note:"يعمل حي · أمني"},
+    {name:"Ollama", model:"محلي", status:"down", note:"يبدأ عند تشغيل 11434"},
+    {name:"OpenRouter", model:"—", status:"up", note:"متاح"},
+    {name:"DeepSeek", model:"—", status:"warn", note:"يحتاج رصيد"},
+    {name:"Groq", model:"—", status:"off", note:"محجوب حالياً (403)"},
+    {name:"Anthropic", model:"—", status:"warn", note:"متاح إن وُجد مفتاح"},
+    {name:"OpenAI", model:"—", status:"warn", note:"متاح إن وُجد مفتاح"}
+  ],
+  // finance.json
+  finance:{
+    self_earned_usd:0.0,
+    txns:[
+      {category:"revenue", amount:50.0, income:true, source:"bounty", note:"مكافأة IDOR — Adobe", date:"2026-09-12"},
+      {category:"revenue", amount:29.0, income:true, source:"product", note:"اشتراك TestSaaS", date:"2026-09-11"},
+      {category:"cost", amount:2.0, income:false, source:"api", note:"رصيد نماذج ذكاء", date:"2026-09-11"},
+      {category:"cost", amount:12.0, income:false, source:"infra", note:"استضافة تجريبية", date:"2026-09-09"}
+    ]
+  },
+  // goals.json
+  goals:[
+    {id:1, title:"اكتب ملف ملاحظات في output", priority:"medium", category:"general", auto:true, status:"active", strategy:"إنشاء ملف نصي منظم في مجلد المخرجات وتوثيقه", created:"2026-09-13"},
+    {id:2, title:"راقب برامج المكافآت الجديدة يومياً", priority:"high", category:"security", auto:true, status:"active", strategy:"سحب الأدلة من 6 منصات وترتيبها بالمكافأة", created:"2026-09-12"},
+    {id:3, title:"حسّن أضعف نقطة في محرك التوجيه", priority:"high", category:"improve", auto:true, status:"active", strategy:"قياس benchmark ثم فرع معزول + pytest", created:"2026-09-12"},
+    {id:4, title:"ابنِ منتج SaaS تجريبي جديد", priority:"medium", category:"build", auto:false, status:"paused", strategy:"استخدام product_factory بقالب web", created:"2026-09-10"},
+    {id:5, title:"جهّز تقرير الصباح المالي", priority:"low", category:"operate", auto:true, status:"active", strategy:"تجميع chief_staff + finance_intel", created:"2026-09-13"}
+  ],
+  // requests.json (approvals)
+  requests:[
+    {id:1, title:"تثبيت أداة أمنية جديدة: httpx", detail:"اكتشفها tool_registry وتحتاج مراجعة أمنية قبل التثبيت في البيئة", status:"pending", created:"2026-09-13T01:20:00"},
+    {id:2, title:"نشر منتج TestSaaS على استضافة", detail:"devops_agent جاهز للنشر عبر docker — يتطلب إذن بشري", status:"pending", created:"2026-09-13T00:55:00"},
+    {id:3, title:"اعتماد ميزانية $5 لنموذج DeepSeek", detail:"لتفعيل مزود مدفوع منخفض التكلفة عند الحاجة", status:"pending", created:"2026-09-12T23:40:00"},
+    {id:4, title:"دمج تحسين ذاتي في الفرع الرئيسي", detail:"self_improve_engine اجتاز 252 اختبار على فرع معزول", status:"pending", created:"2026-09-12T22:10:00"}
+  ],
+  // bounty_programs.json — programs + findings
+  bountyPrograms:[
+    {id:1, name:"Adobe Public", platform:"intigriti", max_payout:10000,
+     scope:["stock.adobe.com","firefly.adobe.com","photoshop.adobe.com","account.magento.com","repo.magento.com","magento.com","portfolio.ccpsx.com","fonts.adobe.com","account.adobe.com","auth.services.adobe.com","adobeid-na1.services.adobe.com","ims-na1.adobelogin.com","federatedid-na1.services.adobe.com","illustrator.adobe.com","lightroom.adobe.com","express.adobe.com","behance.net"],
+     rules:"سياسة INTIGRITI العلنية لبرامج المكافآت هي التفويض. ممنوع: إجراءات تخريبية أو حذف أو DoS/Phish، تجاوز النطاق المعلن، بيانات مستخدمين حقيقية. ابدأ فحصاً سلبياً أولاً، ثم نشطاً منخفض الأثر داخل النطاق فقط.",
+     destructive_rules:["dos","phish"], authorization_source:"public-policy:intigriti",
+     authorization_status:"owner_confirmed", scope_locked:true, adopted:true, created:"2026-09-13T00:31:44"}
+  ],
+  bountyFindings:[
+    {id:3, program_id:1, host:"app.example.com", title:"IDOR: تعديل معرّف الحساب", severity:"high", evidence:"GET /api/users/1001 -> 200 (وصول لبيانات حساب آخر عبر تبديل المعرّف)", duplicate_of:null, status:"validated", date:"2026-09-13T01:05:00"}
+  ],
+  // مرشحون من feeds المنصات (لم يُعتمدوا بعد)
+  bountyCandidates:[
+    {platform:"hackerone", name:"Shopify", url:"https://hackerone.com/shopify", max_payout:50000, targets:214},
+    {platform:"hackerone", name:"GitLab", url:"https://hackerone.com/gitlab", max_payout:35000, targets:96},
+    {platform:"immunefi", name:"Uniswap", url:"https://immunefi.com/bounty/uniswap", max_payout:2250000, targets:12},
+    {platform:"bugcrowd", name:"Tesla", url:"https://bugcrowd.com/tesla", max_payout:15000, targets:47},
+    {platform:"intigriti", name:"Intigriti", url:"https://intigriti.com", max_payout:8000, targets:31},
+    {platform:"yeswehack", name:"Doctolib", url:"https://yeswehack.com/programs/doctolib", max_payout:5000, targets:18}
+  ],
+  platformCounts:{hackerone:447, bugcrowd:278, intigriti:137, yeswehack:58, federacy:35, immunefi:239},
+  // bounty_drafts.json
+  bountyDrafts:[
+    {id:1, finding_id:3, program_id:1, platform:"intigriti", severity:"high",
+     title:"IDOR: تعديل معرّف الحساب في نقطة /api/users", host:"app.example.com", status:"ready",
+     body:"# IDOR: Account ID Manipulation\n\n## Summary\nAn Insecure Direct Object Reference allows an authenticated user\nto access another account's data by changing the numeric ID.\n\n## Steps to Reproduce (PoC)\n1. Log in as user A.\n2. Send: GET /api/users/1001\n3. Observe HTTP 200 with account B's private data.\n\n## Impact\nHorizontal privilege escalation — full read access to any user record.\n\n## Remediation\nEnforce object-level authorization on every /api/users/{id} call.\nValidate the session owner against the requested resource.\n\n## Responsible Disclosure\nNo destructive actions performed. Test data only, within scope.",
+     guide:"المنصة: intigriti\nالحالة: رفع يدوي بواسطة البشري فقط\n\nرابط الرفع: https://app.intigriti.com/researcher/submit\n\nخطوات الرفع الآمن:\n١. راجع النطاق المصرّح قبل الإرسال.\n٢. الصق التقرير أعلاه في نموذج المنصة.\n٣. أرفق دليل PoC (طلب/استجابة بلا بيانات حقيقية).\n٤. أكمل KYC لاستلام الدفع بعد القبول.\n\nملاحظة: النظام لا يرفع نيابةً عنك — أنت تضغط إرسال بنفسك.",
+     created:"2026-09-13T01:10:00", approved_at:null}
+  ],
+  // bounty_accounts.json — handle فقط + token مخفي
+  bountyAccounts:{
+    intigriti:{handle:"my_handle", token:"●●●●●●", mode:"manual", submit_url:"https://app.intigriti.com/researcher/submit"}
+  },
+  // products.json
+  products:[
+    {name:"TestSaaS", type:"web", path:"C:\\...\\output\\products\\TestSaaS", status:"built", tests_passed:true, built:"2026-09-11"},
+    {name:"LandingKit", type:"web", path:"C:\\...\\output\\products\\LandingKit", status:"built", tests_passed:true, built:"2026-09-10"},
+    {name:"CLI-Toolbox", type:"cli", path:"C:\\...\\output\\products\\CLI-Toolbox", status:"built", tests_passed:null, built:"2026-09-09"},
+    {name:"APIStarter", type:"api", path:"C:\\...\\output\\products\\APIStarter", status:"built", tests_passed:true, built:"2026-09-08"},
+    {name:"BotTemplate", type:"bot", path:"C:\\...\\output\\products\\BotTemplate", status:"building", tests_passed:null, built:"2026-09-13"}
+  ],
+  // notifications.json
+  notifications:[
+    {level:"info", title:"دورة حياة مكتملة", message:"kernel.once — نبضة + أهداف + مالية", time:"2026-09-13T02:00:00"},
+    {level:"warn", title:"Groq محجوب", message:"خطأ 403 من الطرف — تحويل تلقائي إلى Gemini", time:"2026-09-13T01:30:00"},
+    {level:"info", title:"برنامج مكافآت جديد", message:"Adobe Public اعتُمد من intigriti", time:"2026-09-13T00:31:00"}
+  ],
+  // events.jsonl
+  events:[
+    {time:"2026-09-13T02:14:03", level:"info", source:"kernel", event:"دورة حياة #148 اكتملت — 5 أهداف نشطة"},
+    {time:"2026-09-13T02:10:44", level:"info", source:"finance_intel", event:"حُسب ROI اليومي: أفضل مصدر = bounty"},
+    {time:"2026-09-13T01:30:12", level:"warn", source:"models.router", event:"Groq فشل (403) — failover إلى Gemini"},
+    {time:"2026-09-13T01:10:08", level:"info", source:"bounty_engine", event:"prepare_drafts: 1 تقرير جاهز للرفع"},
+    {time:"2026-09-13T01:05:55", level:"critical", source:"bounty_engine", event:"finding مؤكد: IDOR high على app.example.com"},
+    {time:"2026-09-13T00:55:20", level:"info", source:"approval_center", event:"طلب موافقة جديد: نشر TestSaaS"},
+    {time:"2026-09-13T00:31:44", level:"info", source:"bounty_sync", event:"adopt: Adobe Public من intigriti (17 نطاق)"},
+    {time:"2026-09-13T00:20:01", level:"info", source:"self_improve_engine", event:"pytest: 252 passed / 1 skipped على فرع معزول"}
+  ],
+  settings:{ mind:"hybrid", costCap:2, paused:false }
+};
+
+/* ==================== ICONS ==================== */
+const I = {
+  spark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v6m0 8v6M4.9 4.9l4.2 4.2m5.8 5.8l4.2 4.2M2 12h6m8 0h6M4.9 19.1l4.2-4.2m5.8-5.8l4.2-4.2"/></svg>',
+  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>',
+  cube:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg>',
+  coin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  news:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2zm0 0a2 2 0 0 1-2-2v-9h4"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg>',
+  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 17L17 7M17 7H8M17 7v9"/></svg>',
+  down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 7L7 17M7 17h9M7 17V8"/></svg>',
+  send:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>',
+  warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  ok:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12" stroke-width="1.8"/></svg>',
+  empty:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>'
+};
+
+/* ==================== HELPERS ==================== */
+const $ = s => document.querySelector(s);
+const money = n => (n<0?'-':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const timeAgo = iso => {
+  const d = new Date(iso.replace(' ','T')); if(isNaN(d)) return iso;
+  const s = Math.floor((Date.now()-d)/1000);
+  if(s<60) return 'الآن'; if(s<3600) return 'قبل '+Math.floor(s/60)+' د';
+  if(s<86400) return 'قبل '+Math.floor(s/3600)+' س'; return 'قبل '+Math.floor(s/86400)+' يوم';
+};
+const clock = () => {
+  const d=new Date();
+  $('#clock').textContent = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+};
+setInterval(clock,1000); clock();
+
+function toast(msg, type='default'){
+  const t = document.createElement('div');
+  t.className = 'toast '+type;
+  const ic = type==='good'?I.ok : type==='warn'?I.warn : I.spark;
+  t.innerHTML = ic + '<span>'+msg+'</span>';
+  $('#toastWrap').appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-30px)';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3200);
+}
+function openModal(html){ $('#modalBody').innerHTML=html; $('#modalBg').classList.add('on'); }
+function closeModal(){ $('#modalBg').classList.remove('on'); }
+
+/* ==================== PANEL RENDERERS ==================== */
+const P = {};
+
+/* ---- OVERVIEW ---- */
+P.overview = () => {
+  const w = DATA.world;
+  const net = DATA.finance.txns.reduce((a,t)=>a+(t.income?t.amount:-t.amount),0);
+  const provRows = DATA.providers.map(p=>`
+    <div class="prov-row">
+      <span class="st ${p.status}"></span>
+      <span class="nm">${p.name}</span>
+      <span class="tag ${p.status==='up'?'badge-live':p.status==='off'?'badge-off':''}">${p.status==='up'?'متاح':p.status==='off'?'محجوب':p.status==='warn'?'يحتاج رصيد':'متوقف'}</span>
+    </div>`).join('');
+  const feed = DATA.events.slice(0,6).map(e=>`
+    <div class="feed-row"><span class="lvl ${e.level}"></span>
+      <div class="body"><div class="ev">${e.event}</div>
+        <div class="meta"><span>${e.source}</span><span>${timeAgo(e.time)}</span></div></div>
+    </div>`).join('');
+
+  return `
+  <div class="phead">
+    <div><h1>نظرة عامة</h1><p>لقطة حيّة لكل ما يجري داخل الوكيل الآن — يقرأها من world_state.json مباشرة.</p></div>
+    <span class="src-tag">${I.spark} يعمل على البيانات الحية</span>
+  </div>
+
+  <div class="core-wrap">
+    <div class="core-stage">
+      <canvas id="coreCanvas"></canvas>
+      <div class="core-hud">
+        <div class="top">
+          <div class="core-title">النواة الحيّة<b>Agent OS · SelfRunner</b></div>
+          <div class="core-state"><span class="pulse" style="width:7px;height:7px;border-radius:50%;background:var(--emerald);box-shadow:0 0 8px var(--emerald)"></span> نشط · ${w.last_heartbeat}</div>
+        </div>
+        <div class="core-metrics">
+          <div class="cm cy"><div class="n">${w.modules}</div><div class="l">وحدة تشغيل</div></div>
+          <div class="cm vi"><div class="n">${w.uptime_cycles}</div><div class="l">دورة حياة</div></div>
+          <div class="cm go"><div class="n">252</div><div class="l">اختبار ناجح</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-stack">
+      <div class="card prov-box">
+        <div class="ph"><b>مزودو الذكاء</b><span class="src-tag" style="font-size:10px">8 مزودين</span></div>
+        ${provRows}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g-5">
+    ${statCard(I.target,'tc-cyan','bg-cyan','bm-cyan', w.goals.total,'أهداف نشطة','goal_manager','goals')}
+    ${statCard(I.cube,'tc-violet','bg-violet','bm-violet', w.products,'منتجات مبنيّة','product_factory','products')}
+    ${statCard(I.shield,'tc-emerald','bg-emerald','bm-emerald', DATA.bountyPrograms.length,'برامج مكافآت','bounty_engine','bounty')}
+    ${statCard(I.coin,'tc-gold','bg-gold','bm-gold', money(net).replace('.00',''),'صافي الرصيد','finance_intel','money')}
+    ${statCard(I.check,'tc-coral','bg-coral','bm-coral', w.requests_pending,'موافقات معلّقة','approval_center','approvals')}
+  </div>
+
+  <div class="grid g-2" style="margin-top:16px">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="font-size:15px">آخر الأنشطة</b>
+        <span class="src-tag" style="font-size:10px">events.jsonl</span>
+      </div>
+      <div class="feed">${feed}</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <b style="font-size:15px">استخبارات وأدوات</b>
+        <span class="src-tag" style="font-size:10px">world_state.json</span>
+      </div>
+      <div class="kv"><span class="k">أخبار مُجمّعة (news_intel)</span><span class="v tc-cyan">${w.intel.news}</span></div>
+      <div class="kv"><span class="k">مواضيع HackerNews</span><span class="v tc-cyan">${w.intel.hn}</span></div>
+      <div class="kv"><span class="k">أدوات مسجّلة (tool_registry)</span><span class="v tc-violet">${w.tools}</span></div>
+      <div class="kv"><span class="k">عمليات نشر (devops)</span><span class="v tc-violet">${w.deploys}</span></div>
+      <div class="kv"><span class="k">نتائج أمنية مؤكّدة</span><span class="v tc-emerald">${w.findings}</span></div>
+      <div class="kv"><span class="k">حركات مالية</span><span class="v tc-gold">${w.txns}</span></div>
+    </div>
+  </div>`;
+};
+function statCard(ic,tc,bg,bm,val,lab,sub,goto){
+  return `<div class="stat" ${goto?`onclick="nav('${goto}')" style="cursor:pointer"`:''}>
+    <span class="beam ${bm}"></span>
+    <div class="ic ${bg} ${tc}">${ic}</div>
+    <div class="val ${tc}">${val}</div>
+    <div class="lab">${lab}</div>
+    <div class="sub">${sub}</div>
+  </div>`;
+}
+
+/* ---- CHAT ---- */
+let chatBusy=false;
+let CHAT_LOG=[];
+P.chat = () => `
+  <div class="phead">
+    <div><h1>المحادثة</h1><p>أرسل مهمة للوكيل — يوجّهها عبر ROUTER→PLANNER→EXECUTOR→CRITIC→VERIFIER ويعرض كل خطوة حتى DONE.</p></div>
+    <span class="src-tag">${I.spark} selfrunner.py</span>
+  </div>
+  <div class="chat-wrap">
+    <div class="chat-main">
+      <div class="chat-scroll" id="chatScroll">
+        <div class="msg bot"><div class="who">Agent OS</div>هلا 👋 أنا وكيلك. أعطني مهمة وأنفّذها خطوة بخطوة — بحث، بناء، مال، أو صيد ثغرات. جرّب أمر سريع من الجانب أو اكتب مهمتك.</div>
+      </div>
+      <div class="chat-input">
+        <textarea id="chatInput" placeholder="اكتب مهمتك للوكيل... (Enter للإرسال)" oninput="autoGrow(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+        <label class="exec-toggle" title="المحادثة العادية: رد فوري. تفعيل: النواة تنفّذ المهمة على جهازك فعلياً خلف الكواليس" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;padding:0 8px">
+          <input type="checkbox" id="execToggle" style="cursor:pointer;accent-color:var(--cyan)"> 💼 نفّذ كمهمة
+        </label>
+        <button class="send-btn" id="sendBtn" onclick="sendMsg()">${I.send}</button>
+      </div>
+    </div>
+    <div class="chat-side">
+      <div class="csbox">
+        <h4>حالة الجلسة</h4>
+        <div class="kv"><span class="k">المزود النشط</span><span class="v tc-cyan">Gemini</span></div>
+        <div class="kv"><span class="k">النموذج</span><span class="v" style="font-size:11px">gemini-3.6-flash</span></div>
+        <div class="kv"><span class="k">نمط العقل</span><span class="v" id="csMind">${DATA.settings.mind}</span></div>
+        <div class="kv"><span class="k">تكلفة الرسالة</span><span class="v tc-emerald">مجاني</span></div>
+        <div class="kv"><span class="k">خطوات آخر مهمة</span><span class="v" id="csSteps">—</span></div>
+        <div class="kv"><span class="k">الزمن</span><span class="v" id="csTime">—</span></div>
+      </div>
+      <div class="csbox">
+        <h4>أوامر سريعة</h4>
+        <div class="quick-cmds">
+          <button class="qcmd" onclick="quick('ابنِ لي موقع هبوط بسيط')">ابنِ موقع هبوط<code>//بناء موقع</code></button>
+          <button class="qcmd" onclick="quick('راقب برامج المكافآت الجديدة وجهّز خطة صيد')">راقب المكافآت<code>SEARCH: bounty</code></button>
+          <button class="qcmd" onclick="quick('اعطني تقرير مالي عن اليوم')">تقرير مالي<code>STATUS: finance</code></button>
+          <button class="qcmd" onclick="quick('حسّن أضعف نقطة في الوكيل')">حسّن نفسك<code>STRATEGY: improve</code></button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+function autoGrow(el){ el.style.height='48px'; el.style.height=Math.min(el.scrollHeight,130)+'px'; }
+function quick(t){ const i=$('#chatInput'); if(i){ i.value=t; autoGrow(i); i.focus(); } }
+function addChat(html, keep=false){
+  const s=$('#chatScroll');
+  if(s) s.insertAdjacentHTML('beforeend',html);
+  if(keep){ CHAT_LOG.push(html); try{ localStorage.setItem('agent_chat', JSON.stringify(CHAT_LOG)); }catch(e){} }
+  if(s){ s.scrollTop=s.scrollHeight; }
+}
+
+function escA(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function sendMsg(){
+  const inp=$('#chatInput'); if(!inp||chatBusy) return;
+  const txt=inp.value.trim(); if(!txt) return;
+  inp.value=''; autoGrow(inp); chatBusy=true; $('#sendBtn').disabled=true;
+  addChat(`<div class="msg me"><div class="who">أنت</div>${txt}</div>`, true);
+
+  const execEl=document.getElementById('execToggle');
+  if(execEl && execEl.checked){
+    addChat(`<div class="msg bot"><div class="who">Agent OS</div><span class="mono" style="color:var(--cyan)">أُرسلت المهمة إلى منفّذ الخلفية ⏳ — سينفّذها ويجيبك هنا مباشرةً حين تنتهي.</span></div>`, true);
+    chatBusy=false; $('#sendBtn').disabled=false;
+    pushAction('task',{text:txt});
+    trackTaskReply(txt);
+    return;
+  }
+
+  addChat(`<div class="msg bot" id="cTyping"><div class="who">Agent OS</div><span class="mono" style="color:var(--muted)">يكتب الآن…</span></div>`);
+
+  const t0=Date.now();
+  pushAction('chat',{text:txt}).then(res=>{
+    const typing=document.getElementById('cTyping'); if(typing) typing.remove();
+    if(res && res.ok && res.reply){
+      const engine=escA(res.engine||'Gemini');
+      addChat(`<div class="msg bot"><div class="who">Agent OS · <span class="mono" style="color:var(--cyan)">${engine}</span></div><div style="white-space:pre-wrap;line-height:1.7">${escA(res.reply)}</div></div>`, true);
+      if(engine==='teach'){
+        const m=String(res.reply).match(/«([^»]{1,100})»/);
+        trackTaskReply(m?m[1]:txt);
+      }
+    } else {
+      addChat(`<div class="msg bot"><div class="who">Agent OS</div><span class="mono tc-coral">${escA((res&&res.message)||'لم يستجب الوكيل الآن. أعد المحاولة بعد لحظة.')}</span></div>`, true);
+    }
+    const secs=((Date.now()-t0)/1000).toFixed(1);
+    if($('#csSteps')) $('#csSteps').textContent='تحليل';
+    if($('#csTime')) $('#csTime').textContent=secs+'s';
+    chatBusy=false; $('#sendBtn').disabled=false;
+  }).catch(()=>{
+    const typing=document.getElementById('cTyping'); if(typing) typing.remove();
+    addChat(`<div class="msg bot"><div class="who">Agent OS</div><span class="mono tc-coral">يتعذّر الوصول للوصلة. شغّل الاختصار على سطح المكتب ثم أعد المحاولة.</span></div>`, true);
+    chatBusy=false; $('#sendBtn').disabled=false;
+  });
+}
+function pickSteps(t){
+  const base=['ROUTER: تحليل القصد وتحديد الخلايا المناسبة','PLANNER: تفكيك المهمة إلى خطوات قابلة للتنفيذ'];
+  let mid=[];
+  if(/موقع|هبوط|ابن|بناء|منتج/.test(t)) mid=['EXECUTOR: تشغيل product_factory بقالب web','كتابة الملفات في output/products/','تشغيل فحص سريع على البناء'];
+  else if(/مكاف|صيد|ثغر|bounty/.test(t)) mid=['bounty_sync: سحب الأدلة من 6 منصات','ترتيب المرشحين تنازلياً بالمكافأة','bounty_engine: توليد خطة صيد 5 مراحل'];
+  else if(/مال|تقرير|رصيد|finance/.test(t)) mid=['finance_intel: قراءة الحركات من finance.json','حساب الإيرادات والمصروف وROI','تحديد أفضل مصدر ربح'];
+  else if(/حسّن|حسن|طور|improve/.test(t)) mid=['benchmark: قياس 12 مجالاً وتحديد الأضعف','self_improve_engine: توليد تعديل في فرع معزول','تشغيل pytest للتحقق (252 اختبار)'];
+  else mid=['EXECUTOR: تنفيذ الخطوات على الخلايا','جمع النتائج من الأدوات المعنية'];
+  return [...base,...mid,'CRITIC: مراجعة الجودة والمخاطر','VERIFIER: تأكيد المخرجات النهائية'];
+}
+function finalReply(t){
+  if(/موقع|هبوط|ابن|بناء|منتج/.test(t)) return 'جاهز ✅ بنيت لك المشروع في <span class="mono" style="color:var(--cyan)">output/products/</span> واجتاز الفحص السريع. تقدر تفتح المجلد أو تطلب نشره من لوحة الموافقات.';
+  if(/مكاف|صيد|ثغر|bounty/.test(t)) return 'سحبت أحدث البرامج ورتّبتها بالمكافأة، وجهّزت خطة صيد من ٥ مراحل. شوف <b>لوحة المكافآت</b> لاعتماد برنامج وعرض الخطة. تذكير: الرفع يدوي دائماً.';
+  if(/مال|تقرير|رصيد|finance/.test(t)) return 'صافي الرصيد موجب، وأفضل مصدر ربح حالياً هو <b>bounty</b>. التفاصيل الكاملة في <b>لوحة المال</b>.';
+  if(/حسّن|حسن|طور|improve/.test(t)) return 'قِست الأداء، والأضعف كان في تصنيف القصد. جهّزت تعديلاً في فرع معزول واجتاز ٢٥٢ اختباراً — ينتظر موافقتك للدمج في <b>لوحة الموافقات</b>.';
+  return 'نفّذت المهمة وجمعت النتائج. تقدر تعطيني تفاصيل أكثر أو مهمة جديدة.';
+}
+
+/* ---- MONEY ---- */
+P.money = () => {
+  const txns=DATA.finance.txns;
+  const income=txns.filter(t=>t.income).reduce((a,t)=>a+t.amount,0);
+  const cost=txns.filter(t=>!t.income).reduce((a,t)=>a+t.amount,0);
+  const net=income-cost;
+  const roi = cost>0 ? Math.round(((income-cost)/cost)*100) : 0;
+  const bySource={}; txns.filter(t=>t.income).forEach(t=>bySource[t.source]=(bySource[t.source]||0)+t.amount);
+  const best=Object.entries(bySource).sort((a,b)=>b[1]-a[1])[0];
+  const pct = income>0 ? Math.round((income/(income+cost))*100) : 0;
+
+  const rows=txns.map(t=>`
+    <div class="txn">
+      <div class="ti ${t.income?'bg-emerald tc-emerald':'bg-coral tc-coral'}">${t.income?I.up:I.down}</div>
+      <div class="info"><div class="t">${t.note}</div><div class="m">${t.source} · ${t.date}</div></div>
+      <div class="amt ${t.income?'tc-emerald':'tc-coral'}">${t.income?'+':'−'}${money(t.amount).replace('$','$')}</div>
+    </div>`).join('');
+
+  return `
+  <div class="phead">
+    <div><h1>المال</h1><p>الإيرادات والمصروف والعائد — يقرأها من finance.json (قد يكون فارغاً في أول تشغيل).</p></div>
+    <span class="src-tag">${I.coin} finance.json</span>
+  </div>
+  <div class="money-hero">
+    <div class="card fin-big" style="background:linear-gradient(135deg,rgba(55,224,160,.08),rgba(52,229,255,.05))">
+      <div class="lab">صافي الرصيد</div>
+      <div class="amt ${net>=0?'tc-emerald':'tc-coral'}">${money(net)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px;color:var(--muted)"><span>دخل ${pct}%</span><span>مصروف ${100-pct}%</span></div>
+    </div>
+    <div class="stat"><span class="beam bm-emerald"></span><div class="ic bg-emerald tc-emerald">${I.up}</div><div class="val tc-emerald">${money(income).replace('.00','')}</div><div class="lab">إجمالي الدخل</div></div>
+    <div class="stat"><span class="beam bm-coral"></span><div class="ic bg-coral tc-coral">${I.down}</div><div class="val tc-coral">${money(cost).replace('.00','')}</div><div class="lab">إجمالي المصروف</div></div>
+  </div>
+  <div class="grid g-3" style="margin-top:16px">
+    <div class="stat"><span class="beam bm-gold"></span><div class="ic bg-gold tc-gold">${I.spark}</div><div class="val tc-gold">${roi}%</div><div class="lab">العائد على الاستثمار ROI</div></div>
+    <div class="stat"><span class="beam bm-cyan"></span><div class="ic bg-cyan tc-cyan">${I.coin}</div><div class="val tc-cyan" style="font-size:20px;text-transform:capitalize">${best?best[0]:'—'}</div><div class="lab">أفضل مصدر ربح</div><div class="sub">${best?money(best[1]):''}</div></div>
+    <div class="stat"><span class="beam bm-violet"></span><div class="ic bg-violet tc-violet">${I.cube}</div><div class="val tc-violet">${money(DATA.finance.self_earned_usd).replace('.00','')}</div><div class="lab">ربح ذاتي للوكيل</div></div>
+  </div>
+  <div class="sec-t">سجل الحركات <span class="ln"></span></div>
+  <div class="card">${rows}</div>`;
+};
+
+/* ---- GOALS ---- */
+P.goals = () => {
+  const rows=DATA.goals.map(g=>`
+    <div class="row-card">
+      <div class="rc-head">
+        <div>
+          <div class="rc-title">${g.title}</div>
+          <div class="rc-desc">${g.strategy}</div>
+          <div class="chips">
+            <span class="chip">#${g.id}</span>
+            <span class="chip">${g.category}</span>
+            ${g.auto?'<span class="chip">ذاتي التوليد</span>':'<span class="chip">يدوي</span>'}
+            <span class="chip">أنشئ ${g.created}</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+          <span class="pill ${g.priority}">${g.priority==='high'?'أولوية عالية':g.priority==='medium'?'متوسطة':'منخفضة'}</span>
+          <span class="pill ${g.status}">${g.status==='active'?'نشط':'موقوف'}</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        ${g.status==='active'
+          ? `<button class="btn bad sm" onclick="toggleGoal(${g.id})">إيقاف الهدف</button>`
+          : `<button class="btn good sm" onclick="toggleGoal(${g.id})">تشغيل الهدف</button>`}
+        <button class="btn sm" onclick="toast('يفتح تفاصيل الهدف من goal_manager','default')">التفاصيل</button>
+      </div>
+    </div>`).join('');
+  return `
+  <div class="phead">
+    <div><h1>الأهداف</h1><p>أهداف الوكيل ذاتية التوليد — من هدف إلى استراتيجية إلى مشاريع ومهام. تُكتب في goals.json.</p></div>
+    <span class="src-tag">${I.target} goals.json</span>
+  </div>
+  <div style="margin-bottom:16px"><button class="btn primary" onclick="newGoal()">+ هدف سريع جديد</button></div>
+  <div class="list">${rows}</div>`;
+};
+function toggleGoal(id){
+  const g=DATA.goals.find(x=>x.id===id); if(!g) return;
+  g.status = g.status==='active'?'paused':'active';
+  pushAction('goal_toggle',{id:g.id,status:g.status});
+  toast(g.status==='active'?'شُغّل الهدف — أُرسل إلى goal_manager':'أُوقف الهدف',g.status==='active'?'good':'warn');
+  render('goals'); refreshBadges();
+}
+function newGoal(){
+  openModal(`
+    <div class="modal-h"><h3>هدف سريع جديد</h3><button class="x-btn" onclick="closeModal()">${I.x}</button></div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">يُنقل مباشرةً إلى goal_manager وينشئ استراتيجية تلقائية.</p>
+    <input id="ngTitle" placeholder="عنوان الهدف..." style="width:100%;padding:13px 15px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);font-family:var(--ar);font-size:14px;margin-bottom:12px" />
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      <select id="ngPrio" style="flex:1;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--deep2);color:var(--text);font-family:var(--ar);font-size:13px">
+        <option value="high">أولوية عالية</option><option value="medium" selected>متوسطة</option><option value="low">منخفضة</option>
+      </select>
+      <select id="ngCat" style="flex:1;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--deep2);color:var(--text);font-family:var(--ar);font-size:13px">
+        <option value="general">عام</option><option value="security">أمني</option><option value="build">بناء</option><option value="finance">مالي</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-start">
+      <button class="btn primary" onclick="saveGoal()">إنشاء الهدف</button>
+      <button class="btn" onclick="closeModal()">إلغاء</button>
+    </div>`);
+}
+function saveGoal(){
+  const t=$('#ngTitle').value.trim(); if(!t){toast('اكتب عنوان الهدف','warn');return;}
+  const ng={id:Math.max(...DATA.goals.map(g=>g.id))+1,title:t,priority:$('#ngPrio').value,category:$('#ngCat').value,auto:false,status:'active',strategy:'سيولّد goal_manager الاستراتيجية تلقائياً...',created:new Date().toISOString().slice(0,10)};
+  DATA.goals.unshift(ng);
+  pushAction('goal_add',{title:ng.title,priority:ng.priority,category:ng.category});
+  closeModal(); render('goals'); refreshBadges(); toast('أُنشئ الهدف وأُرسل إلى goal_manager','good');
+}
+
+/* ---- APPROVALS ---- */
+P.approvals = () => {
+  const pending=DATA.requests.filter(r=>r.status==='pending');
+  if(!pending.length) return emptyState('لا طلبات معلّقة','كل شيء موافق عليه. الطلبات الجديدة تظهر هنا فور إنشائها.');
+  const rows=pending.map(r=>`
+    <div class="row-card">
+      <div class="rc-head">
+        <div><div class="rc-title">${r.title}</div><div class="rc-desc">${r.detail}</div>
+          <div class="chips"><span class="chip">#${r.id}</span><span class="chip">${timeAgo(r.created)}</span></div>
+        </div>
+        <span class="pill pending">معلّق</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn good sm" onclick="decide(${r.id},'approved')">موافقة</button>
+        <button class="btn bad sm" onclick="decide(${r.id},'denied')">رفض</button>
+      </div>
+    </div>`).join('');
+  return `
+  <div class="phead">
+    <div><h1>الموافقات</h1><p>طلبات تحتاج قرارك — الوكيل ينتظر موافقتك قبل أي خطوة حسّاسة. تُكتب الحالة في requests.json.</p></div>
+    <span class="src-tag">${I.check} requests.json</span>
+  </div>
+  <div class="list">${rows}</div>`;
+};
+function decide(id,st){
+  const r=DATA.requests.find(x=>x.id===id); if(!r) return;
+  r.status=st; pushAction('approve',{id:r.id,decision:st});
+  toast(st==='approved'?'تمت الموافقة — أُبلغ الوكيل':'رُفض الطلب',st==='approved'?'good':'warn');
+  render('approvals'); refreshBadges();
+}
+
+/* ---- BOUNTY ---- */
+P.bounty = () => {
+  const pc=DATA.platformCounts;
+  const platRow=Object.entries(pc).map(([k,v])=>`<span class="chip">${k}: ${v}</span>`).join('');
+  const adopted=DATA.bountyPrograms.map(p=>{
+    const scopeChips=p.scope.slice(0,6).map(s=>`<span class="chip lock">${s}</span>`).join('')+(p.scope.length>6?`<span class="chip">+${p.scope.length-6} نطاق</span>`:'');
+    return `<div class="row-card">
+      <div class="rc-head">
+        <div>
+          <div class="rc-title">${p.name} <span class="pill low" style="margin-inline-start:6px">${p.platform}</span></div>
+          <div class="rc-desc">${p.scope.length} نطاقاً مصرّحاً · أقصى مكافأة ${money(p.max_payout).replace('.00','')} · تفويض: ${p.authorization_source}</div>
+          <div class="chips">${scopeChips}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+          ${p.scope_locked?'<span class="pill validated">النطاق مقفل ✓</span>':''}
+          <span class="pill neutral">${p.authorization_status==='owner_confirmed'?'مؤكّد':'—'}</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary sm" onclick="attackPlan(${p.id})">خطة الصيد</button>
+        <button class="btn sm" onclick="toast('فحص سطحي سلبي — بلا أثر على النطاق','default')">فحص سطحي</button>
+        <button class="btn sm" onclick="showScope(${p.id})">عرض النطاق كامل</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const cands=DATA.bountyCandidates.map((c,i)=>`
+    <div class="row-card">
+      <div class="rc-head">
+        <div>
+          <div class="rc-title">${c.name} <span class="pill neutral" style="margin-inline-start:6px">${c.platform}</span></div>
+          <div class="rc-desc">${c.targets} هدفاً في النطاق · أقصى مكافأة <b class="tc-gold">${money(c.max_payout).replace('.00','')}</b></div>
+        </div>
+        <button class="btn good sm" onclick="adoptProg(${i})">اعتماد</button>
+      </div>
+    </div>`).join('');
+
+  const findings=DATA.bountyFindings.map(f=>`
+    <div class="txn">
+      <div class="ti ${f.severity==='high'?'bg-coral tc-coral':'bg-gold tc-gold'}">${I.shield}</div>
+      <div class="info"><div class="t">${f.title}</div><div class="m">${f.host} · ${f.severity}</div></div>
+      <span class="pill ${f.status}">${f.status==='validated'?'مؤكّد':f.status}</span>
+    </div>`).join('');
+
+  const drafts=DATA.bountyDrafts.map(d=>`
+    <div class="row-card">
+      <div class="rc-head">
+        <div><div class="rc-title">${d.title}</div>
+          <div class="rc-desc">${d.host} · منصة ${d.platform}</div>
+          <div class="chips"><span class="pill ${d.severity}">${d.severity}</span><span class="chip">تقرير #${d.id}</span></div>
+        </div>
+        <span class="pill ${d.status}">${d.status==='ready'?'جاهز للرفع':d.status}</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary sm" onclick="viewDraft(${d.id})">عرض كامل + دليل الرفع</button>
+        <button class="btn good sm" onclick="draftAction(${d.id},'approved')">اعتماد</button>
+        <button class="btn bad sm" onclick="draftAction(${d.id},'rejected')">رفض</button>
+      </div>
+    </div>`).join('');
+
+  return `
+  <div class="phead">
+    <div><h1>المكافآت — Bug Bounty</h1><p>سحب البرامج من ٦ منصات، اعتمادها، توليد خطة صيد، وتجهيز التقارير. الرفع يدوي دائماً.</p></div>
+    <span class="src-tag">${I.shield} bounty_programs.json</span>
+  </div>
+
+  <div class="warn-strip">${I.warn} هذه الصفحة لا تعرض ولا تخزّن أي كلمة مرور. زر «الرفع» يفتح رابط المنصة اليدوي فقط — حمايةً لسمعتك.</div>
+
+  <div class="sec-t">البرامج المعتمدة <span class="ln"></span><span class="pill validated">${DATA.bountyPrograms.length}</span></div>
+  <div class="list">${adopted}</div>
+
+  <div class="grid g-2" style="margin-top:8px">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b style="font-size:15px">النتائج المؤكّدة</b><span class="src-tag" style="font-size:10px">findings</span></div>
+      ${findings || '<p style="color:var(--muted);font-size:13px">لا نتائج بعد.</p>'}
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b style="font-size:15px">حساب المنصة</b><span class="src-tag" style="font-size:10px">bounty_accounts.json</span></div>
+      <div class="kv"><span class="k">intigriti · الاسم المستعار</span><span class="v">${DATA.bountyAccounts.intigriti.handle}</span></div>
+      <div class="kv"><span class="k">التوكن</span><span class="v tc-emerald">🟢 مخزّن (مخفي)</span></div>
+      <div class="kv"><span class="k">وضع الرفع</span><span class="v tc-gold">يدوي</span></div>
+    </div>
+  </div>
+
+  <div class="sec-t">التقارير الجاهزة <span class="ln"></span><span class="pill ready">${DATA.bountyDrafts.length}</span></div>
+  <div class="list">${drafts || emptyState('لا تقارير جاهزة','عند تأكيد نتيجة، يحوّلها prepare_drafts إلى تقرير قابل للرفع.')}</div>
+
+  <div class="sec-t">مرشّحون من المنصات <span class="ln"></span></div>
+  <div style="margin-bottom:12px"><div class="chips">${platRow}</div></div>
+  <div class="list">${cands}</div>`;
+};
+function adoptProg(i){
+  const c=DATA.bountyCandidates[i]; if(!c) return;
+  const nid=Math.max(0,...DATA.bountyPrograms.map(p=>p.id))+1;
+  DATA.bountyPrograms.push({id:nid,name:c.name,platform:c.platform,max_payout:c.max_payout,scope:Array.from({length:Math.min(c.targets,8)},(_,k)=>`asset${k+1}.${c.name.toLowerCase()}.com`),rules:"سياسة المنصة العلنية هي التفويض. فحص سلبي أولاً ثم نشط منخفض الأثر داخل النطاق.",destructive_rules:["dos","phish"],authorization_source:"public-policy:"+c.platform,authorization_status:"owner_confirmed",scope_locked:true,adopted:true,created:new Date().toISOString()});
+  DATA.bountyCandidates.splice(i,1);
+  pushAction('bounty_adopt',{name:c.name,platform:c.platform,url:c.url});
+  toast(`اعتُمد ${c.name} — أُنشئ برنامج بقفل نطاق`,'good'); render('bounty'); refreshBadges();
+}
+function attackPlan(id){
+  const p=DATA.bountyPrograms.find(x=>x.id===id); if(!p) return;
+  openModal(`
+    <div class="modal-h"><h3>خطة الصيد — ${p.name}</h3><button class="x-btn" onclick="closeModal()">${I.x}</button></div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">٥ مراحل ملموسة من «وضع الخبير الأمني» في عقل الوكيل — العائد أولاً (IDOR/BOLA).</p>
+    ${[
+      {n:1,t:'استخبارات سلبية',d:'جمع النطاقات الفرعية والبصمة دون لمس مباشر — DNS، شهادات، محركات البحث.'},
+      {n:2,t:'خريطة سطح الهجوم',d:'تعداد نقاط الدخول والمعاملات والـ endpoints داخل النطاق المصرّح فقط.'},
+      {n:3,t:'صيد بالعائد',d:'استهداف IDOR/BOLA أولاً (أعلى قبول ودفع)، ثم أخطاء التحكم بالوصول.'},
+      {n:4,t:'تحقق وتفريز',d:'إعادة إنتاج الثغرة وتوثيق PoC نظيف — بلا بيانات حقيقية، بلا أثر تخريبي.'},
+      {n:5,t:'تقرير',d:'صياغة تقرير جاهز للرفع اليدوي مع المعالجة والكشف المسؤول.'}
+    ].map(s=>`<div class="row-card" style="margin-bottom:10px"><div style="display:flex;gap:14px;align-items:flex-start"><div class="sdot" style="width:30px;height:30px;font-size:14px;background:rgba(52,229,255,.12);color:var(--cyan);border-radius:9px;display:grid;place-items:center;font-family:var(--num);font-weight:600;flex-shrink:0">${s.n}</div><div><div class="rc-title" style="font-size:14px">${s.t}</div><div class="rc-desc">${s.d}</div></div></div></div>`).join('')}
+    <div class="warn-strip">${I.warn} فحص سلبي أولاً. الممنوع: ${p.destructive_rules.join(' / ')}, وتجاوز النطاق المعلن.</div>`);
+}
+function showScope(id){
+  const p=DATA.bountyPrograms.find(x=>x.id===id); if(!p) return;
+  openModal(`
+    <div class="modal-h"><h3>النطاق المصرّح — ${p.name}</h3><button class="x-btn" onclick="closeModal()">${I.x}</button></div>
+    <div class="chips scope-list">${p.scope.map(s=>`<span class="chip lock">${s}</span>`).join('')}</div>
+    <div class="guide-box">${p.rules}</div>`);
+}
+function viewDraft(id){
+  const d=DATA.bountyDrafts.find(x=>x.id===id); if(!d) return;
+  openModal(`
+    <div class="modal-h"><h3>${d.title}</h3><button class="x-btn" onclick="closeModal()">${I.x}</button></div>
+    <div class="chips" style="margin-bottom:14px"><span class="pill ${d.severity}">${d.severity}</span><span class="chip">${d.host}</span><span class="chip">${d.platform}</span><span class="pill ${d.status}">${d.status==='ready'?'جاهز':d.status}</span></div>
+    <div class="report-body">${d.body}</div>
+    <div class="sec-t" style="margin:18px 0 10px">دليل الرفع اليدوي <span class="ln"></span></div>
+    <div class="guide-box">${d.guide}</div>
+    <div class="warn-strip">${I.warn} النظام لا يرفع نيابةً عنك. زر «فتح رابط الرفع» يأخذك للمنصة فقط — تضغط إرسال بنفسك.</div>
+    <div class="btn-row"><button class="btn primary" onclick="toast('يفتح رابط المنصة اليدوي في المتصفح','default')">فتح رابط الرفع</button><button class="btn good" onclick="draftAction(${d.id},'approved');closeModal()">اعتماد التقرير</button></div>`);
+}
+function draftAction(id,st){
+  const d=DATA.bountyDrafts.find(x=>x.id===id); if(!d) return;
+  d.status=st; if(st==='approved') d.approved_at=new Date().toISOString();
+  toast(st==='approved'?'اعتُمد التقرير — جاهز للرفع اليدوي':'رُفض التقرير',st==='approved'?'good':'warn');
+  render('bounty');
+}
+
+/* ---- PRODUCTS ---- */
+P.products = () => {
+  const rows=DATA.products.map(p=>`
+    <div class="row-card">
+      <div class="rc-head">
+        <div><div class="rc-title">${p.name} <span class="pill neutral" style="margin-inline-start:6px">${p.type}</span></div>
+          <div class="rc-desc mono" style="font-size:11.5px;color:var(--muted-dim);direction:ltr;text-align:start">${p.path}</div>
+          <div class="chips"><span class="chip">بُني ${p.built}</span>
+            ${p.tests_passed===true?'<span class="chip lock">اختبارات ناجحة</span>':p.tests_passed===false?'<span class="chip">اختبارات فاشلة</span>':'<span class="chip">بلا اختبار</span>'}
+          </div>
+        </div>
+        <span class="pill ${p.status==='built'?'built':'pending'}">${p.status==='built'?'مبني':'قيد البناء'}</span>
+      </div>
+      <div class="btn-row"><button class="btn sm" onclick="toast('يفتح مسار الملف الناتج على جهازك','default')">فتح المجلد</button></div>
+    </div>`).join('');
+  return `
+  <div class="phead">
+    <div><h1>المنتجات</h1><p>ما بناه product_factory — منتجات جاهزة في مجلد المخرجات. تُقرأ من products.json.</p></div>
+    <span class="src-tag">${I.cube} products.json</span>
+  </div>
+  <div class="list">${rows}</div>`;
+};
+
+/* ---- LOG ---- */
+P.log = () => {
+  const evData = Array.isArray(DATA.events) ? DATA.events : [];
+  const rows=evData.map(e=>{
+    const lvl=(e.level||(e.source==='teach'?'info':'info'))||'info';
+    const title=e.event || e.type || 'حدث';
+    const sub = (e.data&&(e.data.label||e.data.topic||e.data.message||e.data.detail)) || e.message || '';
+    const ts = e.time || e.ts || '';
+    const when = ts ? new Date(String(ts).replace(' ','T')).toLocaleTimeString('ar-SA') : '';
+    const icon = title==='teach_step'?'🎓':(title==='lesson_created'?'📚':(title==='full_access'?'🕹️':''));
+    return `<div class="feed-row"><span class="lvl"></span>
+      <div class="body"><div class="ev">${icon} <b>${escA(title)}</b>${sub?(' · '+escA(sub)):''}</div>
+        <div class="meta"><span class="pill ${lvl==='critical'?'high':lvl==='warn'?'medium':'low'}" style="font-size:10px;padding:1px 8px">${escA(lvl)}</span><span>${escA(e.source||'system')}</span><span>${when}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+  const notif=DATA.notifications.map(n=>`
+    <div class="feed-row"><span class="lvl ${n.level}"></span>
+      <div class="body"><div class="ev"><b>${n.title}</b> — ${n.message}</div>
+        <div class="meta"><span>${timeAgo(n.time)}</span></div></div>
+    </div>`).join('');
+  return `
+  <div class="phead">
+    <div><h1>سجل النشاط</h1><p>كل حدث بزمنه ومصدره — ينظر هنا خطوات التعلم الحية 🎓 وكل ما يفعله الوكيل.</p></div>
+    <span class="src-tag">${I.news} events.jsonl</span>
+  </div>
+  <div class="grid g-2">
+    <div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">سجل الأحداث</b><span class="src-tag" style="font-size:10px">events.jsonl</span></div><div class="feed">${rows||emptyState('لا أحداث بعد','أرسل لوكيلك «تعلم <موضوع>» وشاهد خطواته هنا حيةً')}</div></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">التنبيهات</b><span class="src-tag" style="font-size:10px">notifications.json</span></div><div class="feed">${notif||''}</div></div>
+  </div>`;
+};
+
+/* ---- SETTINGS ---- */
+P.settings = () => {
+  const minds=[['hybrid','هجين','يسأل مزودَين ويقارن'],['smart','ذكي','توازن جودة/تكلفة'],['fastest','الأسرع','أقل زمن استجابة'],['strongest','الأقوى','أعلى جودة'],['ollama','محلي','بلا إنترنت']];
+  const provRows=DATA.providers.map(p=>`
+    <div class="set-row">
+      <div><div class="sl">${p.name} <span class="mono" style="font-size:11px;color:var(--muted-dim)">${p.model!=='—'?p.model:''}</span></div><div class="sd">${p.note}</div></div>
+      <span class="pill ${p.status==='up'?'up':p.status==='off'?'rejected':'pending'}">${p.status==='up'?'متاح':p.status==='off'?'محجوب':p.status==='warn'?'يحتاج رصيد':'متوقف'}</span>
+    </div>`).join('');
+  return `
+  <div class="phead">
+    <div><h1>الإعدادات</h1><p>تحكّم بعقل الوكيل وحدود التكلفة وحالته — بلا مفاتيح API مكشوفة، حالة فقط.</p></div>
+    <span class="src-tag">${I.spark} تشغيل محلي آمن</span>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <b style="font-size:15px">نمط العقل</b>
+    <p style="color:var(--muted);font-size:13px;margin-top:4px">كيف يختار الوكيل مزوّد الذكاء لكل مهمة.</p>
+    <div class="seg" id="mindSeg">
+      ${minds.map(m=>`<button class="${DATA.settings.mind===m[0]?'on':''}" onclick="setMind('${m[0]}')" title="${m[2]}">${m[1]}</button>`).join('')}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="set-row">
+      <div><div class="sl">سقف التكلفة اليومي</div><div class="sd">أقصى إنفاق على النماذج المدفوعة في اليوم (SELFRUNNER_MAX_COST_USD).</div></div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <input type="range" class="slider" min="0" max="10" step="0.5" value="${DATA.settings.costCap}" oninput="setCost(this.value)" />
+        <b class="mono tc-cyan" id="costVal" style="font-size:16px;min-width:44px">$${DATA.settings.costCap.toFixed(1)}</b>
+      </div>
+    </div>
+    <div class="set-row">
+      <div><div class="sl">إيقاف الوكيل مؤقتاً</div><div class="sd">يوقف دورات الحياة التلقائية — يبقى متاحاً للأوامر اليدوية.</div></div>
+      <div class="toggle ${DATA.settings.paused?'on':''}" id="pauseTgl" onclick="togglePause()"></div>
+    </div>
+    <div class="set-row">
+      <div><div class="sl">اللغة</div><div class="sd">واجهة عربية أولاً مع دعم إنجليزي.</div></div>
+      <div class="seg"><button class="on">العربية</button><button onclick="toast('الإنجليزية متاحة في الوضع الكامل','default')">English</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:15px">حالة مزودي الذكاء</b><span class="src-tag" style="font-size:10px">حالة فقط — بلا مفاتيح</span></div>
+    ${provRows}
+  </div>
+
+  <div class="card" style="margin-top:16px;background:linear-gradient(135deg,rgba(55,224,160,.05),transparent)">
+    <div class="sb-foot" style="padding:0">
+      <div class="guard" style="font-size:13px">${I.shield} ضمانات الأمان النشطة</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+      <div class="chip lock" style="padding:9px 12px">✓ صفر كلمات مرور مخزّنة</div>
+      <div class="chip lock" style="padding:9px 12px">✓ صفر مفاتيح API مكشوفة</div>
+      <div class="chip lock" style="padding:9px 12px">✓ الرفع الأمني يدوي دائماً</div>
+      <div class="chip lock" style="padding:9px 12px">✓ خادم محلي 127.0.0.1</div>
+      <div class="chip lock" style="padding:9px 12px">✓ حارس SSRF نشط</div>
+      <div class="chip lock" style="padding:9px 12px">✓ كتابة ذرّية للبيانات</div>
+    </div>
+  </div>`;
+};
+function setMind(m){ DATA.settings.mind=m; render('settings'); if($('#csMind'))$('#csMind').textContent=m; toast('نمط العقل: '+m,'good'); }
+function setCost(v){ DATA.settings.costCap=parseFloat(v); $('#costVal').textContent='$'+parseFloat(v).toFixed(1); }
+function togglePause(){ DATA.settings.paused=!DATA.settings.paused; $('#pauseTgl').classList.toggle('on'); toast(DATA.settings.paused?'أُوقف الوكيل مؤقتاً':'استؤنف الوكيل',DATA.settings.paused?'warn':'good'); }
+
+function emptyState(t,s){ return `<div class="empty">${I.empty}<p>${t}</p><small>${s}</small></div>`; }
+
+/* ==================== ROUTING ==================== */
+let current='overview';
+function render(panel){
+  current=panel;
+  $('#main').innerHTML = `<div class="panel on">${P[panel]()}</div>`;
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.panel===panel));
+  if(panel==='chat'){
+    const s=document.getElementById('chatScroll');
+    if(s && CHAT_LOG.length){ s.insertAdjacentHTML('beforeend', CHAT_LOG.join('')); s.scrollTop=s.scrollHeight; }
+  }
+  if(panel==='overview') setTimeout(initCore,60);
+  $('#main').scrollTop=0;
+}
+function toggleMenu(force){
+  const sb=document.querySelector('.sidebar'), sc=document.getElementById('scrim');
+  const open = force===undefined ? !sb.classList.contains('open') : force;
+  sb.classList.toggle('open', open);
+  sc.classList.toggle('on', open);
+}
+function nav(panel){ render(panel); toggleMenu(false); }
+window.toggleMenu=toggleMenu;
+document.querySelectorAll('.nav-item').forEach(n=>n.addEventListener('click',()=>nav(n.dataset.panel)));
+
+function refreshBadges(){
+  $('#bGoals').textContent=DATA.goals.filter(g=>g.status==='active').length;
+  $('#bApprovals').textContent=DATA.requests.filter(r=>r.status==='pending').length;
+  $('#bBounty').textContent=DATA.bountyPrograms.length;
+  $('#bProducts').textContent=DATA.products.length;
+  const net=DATA.finance.txns.reduce((a,t)=>a+(t.income?t.amount:-t.amount),0);
+  $('#bMoney').textContent=money(net).replace('.00','');
+}
+
+/* ==================== 3D: BACKGROUND STARFIELD ==================== */
+(function bgScene(){
+  const canvas=$('#bg3d');
+  if(!window.THREE) return;
+  const reduce=window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  const scene=new THREE.Scene();
+  const cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,1000);
+  cam.position.z=340;
+
+  // star particles
+  const N=1400, geo=new THREE.BufferGeometry(), pos=new Float32Array(N*3), col=new Float32Array(N*3);
+  const cA=new THREE.Color(0x34e5ff), cB=new THREE.Color(0x9d7bff), cC=new THREE.Color(0xffffff);
+  for(let i=0;i<N;i++){
+    pos[i*3]=(Math.random()-.5)*900; pos[i*3+1]=(Math.random()-.5)*700; pos[i*3+2]=(Math.random()-.5)*700;
+    const c=Math.random()<.5?cA:(Math.random()<.6?cB:cC);
+    col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const mat=new THREE.PointsMaterial({size:1.7,vertexColors:true,transparent:true,opacity:.7,depthWrite:false,blending:THREE.AdditiveBlending});
+  const stars=new THREE.Points(geo,mat); scene.add(stars);
+
+  let mx=0,my=0;
+  addEventListener('mousemove',e=>{mx=(e.clientX/innerWidth-.5);my=(e.clientY/innerHeight-.5);});
+  function resize(){renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();}
+  addEventListener('resize',resize); resize();
+  function loop(){
+    requestAnimationFrame(loop);
+    stars.rotation.y+=reduce?0:.0004; stars.rotation.x+=reduce?0:.0002;
+    cam.position.x+=(mx*40-cam.position.x)*.03; cam.position.y+=(-my*40-cam.position.y)*.03;
+    cam.lookAt(scene.position);
+    renderer.render(scene,cam);
+  }
+  loop();
+})();
+
+/* ==================== 3D: LIVING CORE ==================== */
+let coreCtx=null;
+function initCore(){
+  const canvas=$('#coreCanvas'); if(!canvas||!window.THREE) return;
+  if(coreCtx){ coreCtx.dispose(); coreCtx=null; }
+  const reduce=window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  const scene=new THREE.Scene();
+  const w=canvas.clientWidth||600, h=canvas.clientHeight||340;
+  const cam=new THREE.PerspectiveCamera(55,w/h,.1,100); cam.position.z=6;
+
+  const grp=new THREE.Group(); scene.add(grp);
+
+  // inner glowing icosahedron (solid)
+  const innerGeo=new THREE.IcosahedronGeometry(1.35,1);
+  const innerMat=new THREE.MeshBasicMaterial({color:0x1a4a66,transparent:true,opacity:.35});
+  const inner=new THREE.Mesh(innerGeo,innerMat); grp.add(inner);
+
+  // wireframe shell
+  const wireGeo=new THREE.IcosahedronGeometry(1.9,2);
+  const wireMat=new THREE.MeshBasicMaterial({color:0x34e5ff,wireframe:true,transparent:true,opacity:.55});
+  const wire=new THREE.Mesh(wireGeo,wireMat); grp.add(wire);
+
+  // outer violet wire
+  const wire2Geo=new THREE.IcosahedronGeometry(2.5,1);
+  const wire2Mat=new THREE.MeshBasicMaterial({color:0x9d7bff,wireframe:true,transparent:true,opacity:.22});
+  const wire2=new THREE.Mesh(wire2Geo,wire2Mat); grp.add(wire2);
+
+  // orbiting points
+  const M=420, pg=new THREE.BufferGeometry(), pp=new Float32Array(M*3), pc=new Float32Array(M*3);
+  const cCy=new THREE.Color(0x34e5ff), cVi=new THREE.Color(0x9d7bff), cGo=new THREE.Color(0xf6c453);
+  for(let i=0;i<M;i++){
+    const r=2.7+Math.random()*1.6, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1);
+    pp[i*3]=r*Math.sin(ph)*Math.cos(th); pp[i*3+1]=r*Math.sin(ph)*Math.sin(th); pp[i*3+2]=r*Math.cos(ph);
+    const c=Math.random()<.6?cCy:(Math.random()<.6?cVi:cGo);
+    pc[i*3]=c.r; pc[i*3+1]=c.g; pc[i*3+2]=c.b;
+  }
+  pg.setAttribute('position',new THREE.BufferAttribute(pp,3));
+  pg.setAttribute('color',new THREE.BufferAttribute(pc,3));
+  const pm=new THREE.PointsMaterial({size:.06,vertexColors:true,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const orbit=new THREE.Points(pg,pm); scene.add(orbit);
+
+  function rs(){ const W=canvas.clientWidth,H=canvas.clientHeight; renderer.setSize(W,H,false); cam.aspect=W/H; cam.updateProjectionMatrix(); }
+  const ro=new ResizeObserver(rs); ro.observe(canvas); rs();
+
+  let t=0, raf;
+  function loop(){
+    raf=requestAnimationFrame(loop); t+=.016;
+    const pulse=1+Math.sin(t*1.6)*.05;
+    grp.scale.setScalar(reduce?1:pulse);
+    if(!reduce){
+      wire.rotation.y+=.004; wire.rotation.x+=.002;
+      wire2.rotation.y-=.003; wire2.rotation.z+=.002;
+      inner.rotation.y-=.005;
+      orbit.rotation.y+=.0016; orbit.rotation.x+=.0009;
+    }
+    wireMat.opacity=.45+Math.sin(t*1.6)*.12;
+    renderer.render(scene,cam);
+  }
+  loop();
+  coreCtx={dispose(){cancelAnimationFrame(raf);ro.disconnect();renderer.dispose();innerGeo.dispose();wireGeo.dispose();wire2Geo.dispose();pg.dispose();}};
+}
+
+/* ==================== LIVE BRIDGE ==================== */
+/* يتصل تلقائياً بخادم الجسر المحلي إن كان شغّالاً، وإلا يبقى وضع تجريبي.
+   عنوان الجسر الافتراضي: http://127.0.0.1:8787  (محلي فقط — لا إنترنت خارجي) */
+const API_BASE = (location.protocol==='file:') ? 'http://127.0.0.1:8787' : '';
+let LIVE = false;
+
+async function loadLive(){
+  try{
+    const r = await fetch(API_BASE + '/api/all', {cache:'no-store'});
+    if(!r.ok) throw new Error('bridge');
+    const live = await r.json();
+    const keys=['world','providers','finance','goals','requests','bountyPrograms',
+      'bountyFindings','bountyCandidates','platformCounts','bountyDrafts',
+      'bountyAccounts','products','notifications','events','settings','fullAccess','knowledge'];
+    for(const k of keys){ if(live[k]!==undefined && live[k]!==null) DATA[k]=live[k]; }
+    LIVE = true; setMode(true);
+    if(DATA.fullAccess) FULL_ACCESS=!!DATA.fullAccess.enabled;
+    renderAccess();
+    const cur = document.querySelector('.nav-item.active')?.dataset.panel || 'overview';
+    render(cur); refreshBadges();
+    toast('اتصلت ببيانات وكيلك الحقيقية ✓','good');
+  }catch(e){ LIVE=false; setMode(false); }
+}
+function setMode(on){
+  const pill=document.querySelector('.live-pill');
+  if(pill) pill.innerHTML='<span class="pulse"></span> '+(on?'بيانات مباشرة · الوكيل نشط':'وضع تجريبي');
+}
+async function pushAction(type,payload){
+  try{
+    const r=await fetch(API_BASE+'/api/action',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({type,payload})});
+    if(!r.ok) return null;
+    const res=await r.json();
+    if(res && res.ok===false) toast(res.message||'تعذّر تنفيذ الإجراء','warn');
+    return res;
+  }catch(e){ return null; }
+}
+window.loadLive=loadLive; window.pushAction=pushAction;
+
+/* ==================== الرد الحي: تتبّع نتيجة المهمة ==================== */
+let PENDING_TASK=null;        // {text, baseTotal}
+let RESULT_POLL=null;
+let lastLive='';
+function appendLive(cur){
+  cur=String(cur||'').trim();
+  if(!cur){ const wb=document.getElementById('cLive'); if(wb) wb.remove(); lastLive=''; return; }
+  if(cur===lastLive) return;
+  lastLive=cur;
+  const wb=document.getElementById('cLive');
+  if(wb){ wb.innerHTML=`<span class="mono" style="color:var(--cyan)">⚙ الآن: ${escA(cur)}</span>`; wb.scrollIntoView({block:'nearest'}); }
+  else addChat(`<div class="msg bot" id="cLive"><div class="who">Agent OS · live</div><span class="mono" style="color:var(--cyan)">⚙ يعمل الآن: ${escA(cur)}</span></div>`);
+}
+async function pollWorkerLive(){
+  try{
+    const r=await fetch(API_BASE+'/api/worker',{cache:'no-store'});
+    if(!r.ok){ return; }
+    const w=await r.json();
+    appendLive(w.current||'');
+  }catch(e){}
+}
+async function trackTaskReply(text){
+  let baseTotal=0;
+  try{
+    const r=await fetch(API_BASE+'/api/inbox_results',{cache:'no-store'});
+    if(r.ok){ const j=await r.json(); baseTotal=j.total||0; }
+  }catch(e){ baseTotal=0; }
+  const baseText=String(text||'').trim().slice(0,120);
+  PENDING_TASK={text:baseText, baseTotal};
+  if(RESULT_POLL) clearInterval(RESULT_POLL);
+  RESULT_POLL=setInterval(async()=>{
+    if(!PENDING_TASK) { clearInterval(RESULT_POLL); RESULT_POLL=null; appendLive(''); return; }
+    pollWorkerLive();
+    try{
+      const r=await fetch(API_BASE+'/api/inbox_results',{cache:'no-store'});
+      if(!r.ok) return;
+      const j=await r.json();
+      const total=j.total||0;
+      if(total<=PENDING_TASK.baseTotal) return;
+      const now=j.items||[];
+      const hit=now.find(x=>String(x.text||'').trim().slice(0,120)===PENDING_TASK.text);
+      const latest=now.length?now[0]:null;
+      const found=hit||latest;
+      if(!found) return;
+      PENDING_TASK=null;
+      clearInterval(RESULT_POLL); RESULT_POLL=null;
+      appendLive('');
+      const ok = found.ok===false?'warn':'good';
+      const kindTxt = found.kind==='learned'?'تعلمت ✓':(found.kind==='executed'?'نفّذت المهمة ✓':'نتيجة المهمة');
+      const detail=String(found.detail||'').replace(/^\{/,'{ ');
+      addChat(`<div class="msg bot"><div class="who">Agent OS</div><span class="mono" style="color:${found.ok===false?'#ff9d6b':'var(--cyan)'}"><b>${kindTxt}</b><br><small>${escA(detail.slice(0,260))}</small></span></div>`, true);
+      toast(kindTxt + (found.ok===false?' (انظر التفاصيل)':''), ok);
+    }catch(e){/* يبقى الرصد صامتاً حتى النتيجة */}
+  }, 4000);
+}
+window.trackTaskReply=trackTaskReply;
+
+/* ==================== الولوج الكامل (مثل جارفس) ==================== */
+let FULL_ACCESS=true;   // تلقائي ودائم افتراضياً — كما طلب المستخدم
+function renderAccess(){
+  const el=document.getElementById('accLabel'), dot=document.getElementById('accDot');
+  if(!el) return;
+  if(FULL_ACCESS){ el.textContent='الولوج: كامل 🕹️'; if(dot) dot.style.background='#37d0c4'; }
+  else { el.textContent='الولوج: مقيّد'; if(dot) dot.style.background='#5a6b7d'; }
+}
+async function toggleAccess(){
+  const on=!FULL_ACCESS;
+  if(on){
+    const ok=confirm(
+      '⚠️ تفعيل الولوج الكامل — منح الوكيل صلاحية تنفيذ أوامر مباشرة على جهازك بلا موافقة لكل خطوة.\n\n' +
+      '· الأوامر القاتلة (حذف/تهيئة/إيقاف تشغيل/reg) تبقى محجوبة دائماً\n' +
+      '· لا كلمات مرور ولا مفاتيح تُسرّب — المفاعيل تبقى في .env\n' +
+      '· يمكنك تعطيله بنفس الزر في أي لحظة\n\nهل تتحمّل هذا؟'
+    );
+    if(!ok) return;
+  }
+  const res=await pushAction('access',{enable:on, reason:'من اللوحة'});
+  if(res && res.ok && res.access) FULL_ACCESS=!!res.access.enabled;
+  renderAccess();
+}
+window.toggleAccess=window.renderAccess; window.renderAccess=renderAccess;
+
+/* ==================== BOOT ==================== */
+window.nav=nav; window.render=render;
+try{ CHAT_LOG=JSON.parse(localStorage.getItem('agent_chat')||'[]'); if(!Array.isArray(CHAT_LOG)) CHAT_LOG=[]; }catch(e){ CHAT_LOG=[]; }
+refreshBadges();
+render('overview');
+setMode(false);
+setTimeout(()=>toast('مرحباً بك في مركز تحكم Agent OS 🛰️','good'),700);
+loadLive();                    // يحاول الاتصال بالوكيل الحقيقي فوراً
+setInterval(()=>{ if(LIVE) loadLive(); }, 15000);  // تحديث حي كل 15 ثانية
+</script>
+</body>
+</html>

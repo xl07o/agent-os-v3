@@ -1,0 +1,52 @@
+{
+  "conflicts": [
+    {
+      "date": "2026-09-13T02:50:05.570629",
+      "existing": {
+        "value": "A",
+        "confidence": 0.5,
+        "source": null
+      },
+      "incoming": {
+        "value": "B",
+        "confidence": 0.9,
+        "source": null
+      },
+      "resolution": "أعلى ثقة",
+      "winner_value": "B",
+      "disputed": false
+    },
+    {
+      "date": "2026-09-13T02:50:05.571924",
+      "existing": {
+        "value": "قديم",
+        "confidence": 0.7,
+        "source": null
+      },
+      "incoming": {
+        "value": "جديد",
+        "confidence": 0.72,
+        "source": null
+      },
+      "resolution": "الأحدث زمنياً",
+      "winner_value": "جديد",
+      "disputed": false
+    },
+    {
+      "date": "2026-09-13T02:50:05.580085",
+      "existing": {
+        "value": "A",
+        "confidence": 0.7,
+        "source": null
+      },
+      "incoming": {
+        "value": "B",
+        "confidence": 0.7,
+        "source": null
+      },
+      "resolution": "تعادل — إبقاء القديم ووسمه للمراجعة",
+      "winner_value": "A",
+      "disputed": true
+    }
+  ]
+}

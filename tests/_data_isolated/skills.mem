@@ -1,0 +1,6 @@
+2026-09-13T02:50:05.682175|general: اكتب ملفاً|golden_loop:success (1/1)|1|score=1.0
+2026-09-13T02:50:05.692142|general: مهمة بلا دليل|golden_loop:unverified (0/1)|0|score=0.0
+2026-09-13T02:50:05.718141|general: زعم كتابة ملف|golden_loop:failure (0/1)|0|score=0.0
+2026-09-13T02:50:05.732369|general: مهمة تفشل|golden_loop:failure (0/1)|0|score=0.0
+2026-09-13T02:50:05.770023|general: مهمة|golden_loop:unverified (0/1)|0|score=0.0
+2026-09-13T02:50:05.798979|general: مهمة فريدة للاختبار zzz-regression-unique|golden_loop:failure (0/1)|0|score=0.0

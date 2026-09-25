@@ -1,0 +1,36 @@
+{
+  "strategies": {
+    "research_89cb673e::cross_check": {
+      "task_type": "research_89cb673e",
+      "strategy": "cross_check",
+      "wins": 3,
+      "losses": 0,
+      "success_rate": 1.0,
+      "samples": 3
+    },
+    "research_89cb673e::single_source": {
+      "task_type": "research_89cb673e",
+      "strategy": "single_source",
+      "wins": 0,
+      "losses": 2,
+      "success_rate": 0.0,
+      "samples": 2
+    },
+    "rare_task_3a955342::once": {
+      "task_type": "rare_task_3a955342",
+      "strategy": "once",
+      "wins": 1,
+      "losses": 0,
+      "success_rate": 1.0,
+      "samples": 1
+    },
+    "general::golden_loop_default": {
+      "task_type": "general",
+      "strategy": "golden_loop_default",
+      "wins": 1,
+      "losses": 5,
+      "success_rate": 0.167,
+      "samples": 6
+    }
+  }
+}

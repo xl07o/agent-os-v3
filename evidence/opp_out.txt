@@ -1,0 +1,1 @@
+لا توجد فرص مكتشفة بعد. شغّل: python opportunity_radar.py scan

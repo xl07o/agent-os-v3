@@ -1,0 +1,1 @@
+الاستخدام: python dream_mode.py run [goals...] | report | status
