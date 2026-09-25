@@ -23,9 +23,24 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent_os import _common as C
 
-URL = os.getenv("HERMES_UPSTREAM_URL", "http://127.0.0.1:8642").rstrip("/")
+URL = os.getenv("HERMES_UPSTREAM_URL", "").rstrip("/")
 KEY = os.getenv("HERMES_UPSTREAM_KEY", "")
 TIMEOUT = int(os.getenv("HERMES_UPSTREAM_TIMEOUT", "120"))
+
+
+def _is_self(url):
+    """حماية من الاستدعاء الذاتي: عنوان يشير لجسرنا (loopback:HERMES_PORT) ليس
+    Hermes خارجياً — لو اعتُبر كذلك لاستدعى الوكيل نفسه بلا نهاية (recursion)."""
+    if not url:
+        return True
+    try:
+        import urllib.parse as _up
+        p = _up.urlparse(url)
+        bridge_port = os.getenv("HERMES_PORT", "8642")
+        return (p.hostname in ("127.0.0.1", "localhost", "::1")
+                and str(p.port or 80) == str(bridge_port))
+    except Exception:
+        return False
 
 
 def _headers():
@@ -42,7 +57,9 @@ def _get(path, timeout=5):
 
 
 def available():
-    """هل مثيل Hermes حيّ (يجيب على /health)؟"""
+    """هل يوجد مثيل Hermes خارجي حيّ (وليس جسرنا نفسه)؟"""
+    if _is_self(URL):
+        return False  # لا Hermes منفصل مُهيّأ — نتجنّب الاستدعاء الذاتي
     try:
         st, body = _get("/health", timeout=3)
         return st == 200 and '"ok"' in body

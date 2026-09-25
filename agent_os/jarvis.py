@@ -64,9 +64,10 @@ def handle(text):
     if cmd is None:
         import re as _re
         letters = _re.findall(r"[A-Za-z؀-ۿ]", text)
-        words = text.split()
-        if len(letters) < 3 or (len(words) == 1 and len(text) <= 3):
-            reply = "ما فهمت الأمر واضح — عيده بصيغة أطول، مثل: «سجّل هدف بناء متجر» أو «تعلّم عن كذا»."
+        # نحجب فقط ما لا يحمل حروفاً إطلاقاً (رموز/ضجيج)؛ التحيات القصيرة مثل
+        # «hi» و«مرحبا» تذهب للدردشة الطبيعية لا لرسالة «ما فهمت».
+        if len(letters) == 0:
+            reply = "ما فهمت — اكتب أمراً أو سؤالاً واضحاً، مثل «حالة» أو «سجّل هدف بناء متجر»."
             try:
                 from agent_os.memory import conversation
                 conversation.record_turn(text, reply, intent="unclear")

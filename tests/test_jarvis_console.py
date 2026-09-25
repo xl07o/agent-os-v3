@@ -52,10 +52,16 @@ def test_empty_is_noop():
     assert jarvis.handle("")["kind"] == "noop"
 
 
-def test_noise_input_asks_for_clarification():
-    for junk in ["ش", "ok", "a", ".."]:
+def test_pure_symbols_ask_for_clarification():
+    # فقط الرموز بلا حروف تُعتبر ضجيجاً؛ الكلمات القصيرة (hi/ش) تذهب للدردشة.
+    for junk in ["..", "!!", "123 ..."]:
         out = jarvis.handle(junk)
         assert out["kind"] == "unclear", f"{junk!r} -> {out['kind']}"
+
+def test_short_greeting_goes_to_chat_not_unclear():
+    for greet in ["hi", "مرحبا", "ش"]:
+        out = jarvis.handle(greet)
+        assert out["kind"] != "unclear", f"{greet!r} -> {out['kind']}"
 
 def test_real_command_still_runs_after_guard():
     assert jarvis.handle("سجّل هدف بناء متجر")["kind"] == "task"
