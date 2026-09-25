@@ -50,3 +50,13 @@ def test_ask_is_honest_without_provider():
 
 def test_empty_is_noop():
     assert jarvis.handle("")["kind"] == "noop"
+
+
+def test_noise_input_asks_for_clarification():
+    for junk in ["ش", "ok", "a", ".."]:
+        out = jarvis.handle(junk)
+        assert out["kind"] == "unclear", f"{junk!r} -> {out['kind']}"
+
+def test_real_command_still_runs_after_guard():
+    assert jarvis.handle("سجّل هدف بناء متجر")["kind"] == "task"
+    assert jarvis.handle("حالة")["kind"] == "status"

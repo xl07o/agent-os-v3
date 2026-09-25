@@ -59,6 +59,27 @@ def handle(text):
     elif head in ("صوت", "voice"):
         cmd = "voice"
 
+    # حارس الضجيج: أمر قصير/غير مفهوم (مثل «ش») لا يُنفَّذ كمهمة — نطلب التوضيح
+    # بدل تصنيفه خطأً (البند 5: لا نتظاهر بتنفيذ ما لم نفهمه).
+    if cmd is None:
+        import re as _re
+        letters = _re.findall(r"[A-Za-z؀-ۿ]", text)
+        words = text.split()
+        if len(letters) < 3 or (len(words) == 1 and len(text) <= 3):
+            reply = "ما فهمت الأمر واضح — عيده بصيغة أطول، مثل: «سجّل هدف بناء متجر» أو «تعلّم عن كذا»."
+            try:
+                from agent_os.memory import conversation
+                conversation.record_turn(text, reply, intent="unclear")
+            except Exception:
+                pass
+            if _STATE["voice"]:
+                try:
+                    from agent_os.voice import tts
+                    tts.speak(reply)
+                except Exception:
+                    pass
+            return {"kind": "unclear", "reply": reply, "data": None}
+
     reply, data = _dispatch(cmd, text, rest)
 
     # سجّل الدور في ذاكرة المحادثة (يغذّي الأولويات — البند 11).
