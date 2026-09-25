@@ -67,8 +67,8 @@ def _agent_reply(prompt_text):
     full = (f"Recent conversation:\n{ctx}\n\n" if ctx else "") + prompt_text
     raw, engine = C.call_brain(persona, full, mode="smart")
     if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
-        reply = ("I'm online, but my brain (Ollama) isn't reachable right now, "
-                 "so I can't think fully. Start Ollama or add a free API key in .env.")
+        reply = ("I'm online, but no thinking brain is reachable yet. Add a free API key "
+                 "(e.g. GROQ_API_KEY) to .env or start Ollama, then RESTART me so I load it.")
     else:
         reply = _trim_reply(raw.strip())
     # نخزّن كلام المستخدم الأصلي (أول سطر) لا الطلب المُركّب كاملاً.
