@@ -76,6 +76,18 @@ def cmd_finance(args):
     return finance_brain.evaluate(idea, cost_usd=cost, monthly_revenue_usd=rev, effort_days=effort)
 
 
+def cmd_tick(_args):
+    """دورة عمل ذاتي واحدة (تعلّم؛ بلا التحسين الثقيل من الواجهة)."""
+    from agent_os import daemon
+    return daemon.tick(do_improve=False)
+
+
+def cmd_daemon(_args):
+    """حالة الحلقة الدائمة (عدد الدورات وآخر نتيجة)."""
+    from agent_os import daemon
+    return daemon._load_state()
+
+
 def cmd_memory(_args):
     out = {}
     try:
@@ -113,7 +125,7 @@ def cmd_status(_args):
 COMMANDS = {
     "run": cmd_run, "learn": cmd_learn, "ingest": cmd_ingest, "idle": cmd_idle,
     "ask": cmd_ask, "say": cmd_say, "memory": cmd_memory, "status": cmd_status,
-    "finance": cmd_finance,
+    "finance": cmd_finance, "tick": cmd_tick, "daemon": cmd_daemon,
 }
 
 
