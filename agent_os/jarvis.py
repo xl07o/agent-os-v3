@@ -19,9 +19,20 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent_os import _common as C
 
-HELP = (
+# لغة الردود: en (افتراضي) أو ar — تُضبط بـ JARVIS_LANG.
+LANG = os.getenv("JARVIS_LANG", "en").lower()
+
+
+def _L(en, ar):
+    """يختار نص الرد حسب اللغة المضبوطة."""
+    return en if LANG.startswith("en") else ar
+
+
+HELP = _L(
+    "JARVIS commands: status | memory | priorities | learn <topic> | ask <q> | "
+    "idle | voice on|off | help | exit — anything else is chat or a task.",
     "أوامر JARVIS: حالة | ذاكرة | أولويات | تعلّم <موضوع> | اسأل <سؤال> | "
-    "سكون | صوت on|off | مساعدة | خروج — وأي جملة أخرى تُنفَّذ كمهمة."
+    "سكون | صوت on|off | مساعدة | خروج — وأي جملة أخرى دردشة أو مهمة.",
 )
 
 _STATE = {"voice": False}
@@ -67,7 +78,8 @@ def handle(text):
         # نحجب فقط ما لا يحمل حروفاً إطلاقاً (رموز/ضجيج)؛ التحيات القصيرة مثل
         # «hi» و«مرحبا» تذهب للدردشة الطبيعية لا لرسالة «ما فهمت».
         if len(letters) == 0:
-            reply = "ما فهمت — اكتب أمراً أو سؤالاً واضحاً، مثل «حالة» أو «سجّل هدف بناء متجر»."
+            reply = _L("I didn't catch that — type a clear question or command, e.g. 'status'.",
+                       "ما فهمت — اكتب أمراً أو سؤالاً واضحاً، مثل «حالة».")
             try:
                 from agent_os.memory import conversation
                 conversation.record_turn(text, reply, intent="unclear")
@@ -109,40 +121,50 @@ def _dispatch(cmd, text, rest):
     if cmd == "status":
         from agent_os import ultra
         d = ultra.cmd_status(None)
-        prov = d.get("brain_providers_available")
-        ready_voice = d.get("voice", {}).get("ready")
-        return (f"العقل: {prov or 'لا مزوّد'} · الصوت جاهز: {ready_voice} · "
-                f"معرفة مخزّنة: {d.get('memory', {}).get('knowledge_items')}"), d
+        prov = d.get("brain_providers_available") or _L("none", "لا مزوّد")
+        rv = d.get("voice", {}).get("ready")
+        km = d.get("memory", {}).get("knowledge_items")
+        return _L(f"Brain: {prov} · voice ready: {rv} · knowledge: {km}",
+                  f"العقل: {prov} · الصوت جاهز: {rv} · معرفة: {km}"), d
     if cmd == "memory":
         from agent_os import ultra
         d = ultra.cmd_memory(None)
-        return (f"معرفة: {d.get('knowledge_items')} · تجارب: {d.get('experiences')} · "
-                f"تعارضات معلّقة: {d.get('disputes_pending')}"), d
+        return _L(f"Knowledge: {d.get('knowledge_items')} · experiences: {d.get('experiences')} "
+                  f"· open conflicts: {d.get('disputes_pending')}",
+                  f"معرفة: {d.get('knowledge_items')} · تجارب: {d.get('experiences')} "
+                  f"· تعارضات: {d.get('disputes_pending')}"), d
     if cmd == "priorities":
         from agent_os.memory import conversation
         pr = conversation.priorities(5)
         if not pr:
-            return "لا أولويات بعد — تحدّث معي أكثر لأتعلّم ما يهمّك.", pr
-        return "أولوياتك الحالية: " + "، ".join(p["topic"] for p in pr), pr
+            return _L("No priorities yet — talk to me more so I learn what matters.",
+                      "لا أولويات بعد — تحدّث معي أكثر."), pr
+        return _L("Your priorities: ", "أولوياتك: ") + ", ".join(p["topic"] for p in pr), pr
     if cmd == "learn":
         from agent_os.learn import ingest
         d = ingest.learn_query(rest)
-        return (f"تعلّمت من {len(d.get('ingested', []))} مصدر عن «{rest}»." if d.get("ok")
-                else f"تعذّر التعلّم عن «{rest}» ({'لا شبكة/نتائج'})."), d
+        return (_L(f"Learned from {len(d.get('ingested', []))} sources about '{rest}'.",
+                   f"تعلّمت من {len(d.get('ingested', []))} مصدر عن «{rest}».") if d.get("ok")
+                else _L(f"Couldn't learn about '{rest}' (no network/results).",
+                        f"تعذّر التعلّم عن «{rest}».")), d
     if cmd == "ask":
         from agent_os import hermes
         d = hermes.get().ask(rest)
-        return (d.get("text") if d.get("ok") else f"لا أعرف الآن ({d.get('reason')})."), d
+        return (_trim(d.get("text")) if d.get("ok")
+                else _L(f"I don't know right now ({d.get('reason')}).",
+                        f"لا أعرف الآن ({d.get('reason')}).")), d
     if cmd == "idle":
         from agent_os.learn import idle_learner
         from agent_os.memory import conversation
         goals = [p["topic"] for p in conversation.priorities(3)] or None
         d = idle_learner.idle_learn_cycle(owner_goals=goals)
-        return f"دورة سكون: تعلّمت {d.get('learned_count')} موضوعاً.", d
+        return _L(f"Idle cycle: learned {d.get('learned_count')} topics.",
+                  f"دورة سكون: تعلّمت {d.get('learned_count')} موضوعاً."), d
     if cmd == "voice":
         want = "on" if "on" in text.lower() or "شغّل" in text or "شغل" in text else "off"
         _STATE["voice"] = (want == "on")
-        return f"الصوت الآن: {'مُفعّل' if _STATE['voice'] else 'مُطفأ'}.", {"voice": _STATE["voice"]}
+        return _L(f"Voice is now {'on' if _STATE['voice'] else 'off'}.",
+                  f"الصوت الآن: {'مُفعّل' if _STATE['voice'] else 'مُطفأ'}."), {"voice": _STATE["voice"]}
 
     # تحاوري أم مهمة؟ لو ما فيه فعل تنفيذي واضح → دردشة طبيعية (شات + وكيل).
     if not _is_task(text):
@@ -156,13 +178,13 @@ def _dispatch(cmd, text, rest):
 
 # وصف صادق ومختصر لكل قصد (ماذا فعل فعلاً، لا «أنجزت المهمة»).
 _INTENT_DONE = {
-    "operate": "سجّلت الهدف في قائمة المهام",
-    "finance": "حسبت الجدوى المالية",
-    "research": "جمعت النتائج",
-    "report": "جهّزت التقرير",
-    "security": "فحصت النطاق المصرّح",
-    "learn": "تعلّمت وخزّنت المعرفة",
-    "improve": "شغّلت دورة تحسين ذاتي",
+    "operate": _L("saved the goal to your task list", "سجّلت الهدف في قائمة المهام"),
+    "finance": _L("computed the financial feasibility", "حسبت الجدوى المالية"),
+    "research": _L("gathered the results", "جمعت النتائج"),
+    "report": _L("prepared the report", "جهّزت التقرير"),
+    "security": _L("checked the authorized scope", "فحصت النطاق المصرّح"),
+    "learn": _L("learned and stored the knowledge", "تعلّمت وخزّنت المعرفة"),
+    "improve": _L("ran one self-improvement cycle", "شغّلت دورة تحسين ذاتي"),
 }
 
 
@@ -175,15 +197,16 @@ def _task_reply(res):
 
     if artifact:
         import os as _os
-        return f"جاهز ✅ — حفظت الملف: {_os.path.basename(str(artifact))}"
+        return _L(f"Done ✅ — saved file: {_os.path.basename(str(artifact))}",
+                  f"جاهز ✅ — حفظت الملف: {_os.path.basename(str(artifact))}")
     if st == "verified":
-        return (_INTENT_DONE.get(intent, "نفّذت الطلب")) + " ✅"
+        return _INTENT_DONE.get(intent, _L("did it", "نفّذت الطلب")) + " ✅"
     if st == "needs_human":
-        return "يحتاج موافقتك قبل المتابعة."
-    # لم يكتمل: نُظهر السبب الحقيقي بدل «لم تكتمل» المبهمة (البند 5).
+        return _L("Needs your approval before continuing.", "يحتاج موافقتك قبل المتابعة.")
     issues = result.get("issues") or []
-    why = issues[0] if issues else "ما قدرت أنتج مخرجاً حقيقياً — وضّح الطلب أكثر أو شغّل العقل."
-    return f"ما أكملت ⚠️ — {why[:120]}"
+    why = issues[0] if issues else _L("couldn't produce a real output — be more specific or start the brain.",
+                                      "ما قدرت أنتج مخرجاً حقيقياً — وضّح الطلب أو شغّل العقل.")
+    return _L(f"Not done ⚠️ — {why[:120]}", f"ما أكملت ⚠️ — {why[:120]}")
 
 
 # أفعال تنفيذية واضحة → مهمة؛ ما عداها → دردشة.
@@ -221,10 +244,14 @@ def _chat(text):
         ctx = "\n".join(f"المستخدم: {t['user']}\nجارفيس: {t.get('reply', '')}" for t in recent[-4:])
     except Exception:
         pass
-    persona = ("أنت جارفيس. جاوب بإيجاز شديد: جملة إلى جملتين كحد أقصى، مباشرة، "
-               "بلغة المستخدم (عربي/إنجليزي). ممنوع المقدمات والحشو والتكرار وسرد ما لم يُطلب. "
-               "لو لا تعرف، قل «لا أعرف». لو طُلبت مهمة تنفيذية، اقترح الأمر المناسب بسطر واحد.")
-    prompt = (f"سياق:\n{ctx}\n\n" if ctx else "") + f"المستخدم: {text}\nجارفيس (بإيجاز):"
+    persona = _L(
+        "You are JARVIS, a sharp assistant. Reply in English, very concisely: "
+        "one or two sentences max, direct, no preamble or filler or repetition. "
+        "If you don't know, say 'I don't know'. If an actionable task is asked, "
+        "suggest the exact command in one line.",
+        "أنت جارفيس، مساعد ذكي. جاوب بإيجاز شديد: جملة إلى جملتين، بلا حشو. "
+        "لو لا تعرف قل «لا أعرف». لو طُلبت مهمة، اقترح الأمر المناسب بسطر.")
+    prompt = (f"Context:\n{ctx}\n\n" if ctx else "") + f"User: {text}\nJARVIS (brief):"
     # Hermes حقيقي أولاً
     try:
         from agent_os import hermes_client
@@ -238,8 +265,9 @@ def _chat(text):
     raw, engine = C.call_brain(persona, prompt, mode="smart")
     if raw and engine not in (None, "", "none") and not raw.strip().startswith("("):
         return _trim(raw.strip())
-    return ("أنا معك — لكن للدردشة أحتاج تشغيل العقل (Ollama). "
-            "أو جرّب «حالة» أو «سجّل هدف بناء متجر».")
+    return _L("I'm here, but I need the brain running (Ollama) to chat. "
+              "Try 'status' or 'set a goal to build a store'.",
+              "أنا معك — لكن للدردشة أحتاج تشغيل العقل (Ollama). جرّب «حالة».")
 
 
 def _trim(text, max_sentences=3, max_chars=400):
