@@ -1,0 +1,18 @@
+# systemd user service — يشغّل عقل الوكيل تلقائياً عند دخولك.
+# التثبيت:
+#   cp tools/jarvis-brain.service ~/.config/systemd/user/
+#   (عدّل WorkingDirectory إلى مسار المشروع)
+#   systemctl --user enable --now jarvis-brain
+[Unit]
+Description=JARVIS brain (Agent OS v3 Hermes-compatible server)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/agent-os-v3
+ExecStart=/usr/bin/python3 -m agent_os.hermes_server
+Restart=on-failure
+Environment=HERMES_PORT=8642
+
+[Install]
+WantedBy=default.target

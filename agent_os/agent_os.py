@@ -956,6 +956,14 @@ def run_task(task, why="", workdir=None, host=None, ptype=None, use_brain=False)
     state["runs"] = state["runs"][:100]
     _save_runs(state)
     _remember_run(task, r["intent"], result, steps, verd)
+    # التطوّر المزدوج: Hermes يراجع ويصحّح ويحوّل الدرس إلى ذاكرة دائمة (اختياري).
+    if os.getenv("HERMES_MENTOR") == "1" and artifact is None:
+        try:
+            from agent_os.evolution import hermes_mentor
+            summary = "؛ ".join(f"{s['action']}={s['done']}" for s in steps[:4])
+            hermes_mentor.mentor(task, result.get("status", "") + " | " + summary, r["intent"])
+        except Exception:
+            pass
     C.log(f"🎯 مهمة [{r['intent']}] → {result['status']}")
     _write_report(task, record)
     return {"task": task, "intent": r["intent"], "steps": record["steps"],
