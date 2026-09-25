@@ -160,12 +160,17 @@ def _safe_request(url, payload=None, headers=None, timeout=REQUEST_TIMEOUT, meth
     last_error = None
     for attempt in range(RETRY_ATTEMPTS + 1):
         try:
+            # User-Agent متصفّحي: بوابات Cloudflare (Groq وغيرها) تحظر طلبات
+            # بلا UA برمز 1010. نضيفه افتراضياً ويمكن للمستدعي تجاوزه.
+            _ua = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             if payload is not None:
                 data = json.dumps(payload).encode("utf-8")
-                hdrs = {"Content-Type": "application/json", **(headers or {})}
+                hdrs = {"Content-Type": "application/json", "User-Agent": _ua, **(headers or {})}
                 req = urllib.request.Request(url, data=data, headers=hdrs, method=method if method != "GET" else "POST")
             else:
-                req = urllib.request.Request(url, headers=headers or {})
+                hdrs = {"User-Agent": _ua, **(headers or {})}
+                req = urllib.request.Request(url, headers=hdrs)
 
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
