@@ -31,6 +31,9 @@ build/
 !tests/**/*.json
 !.claude/**/*.json
 
+# خرج الاختبارات المؤقت — يُحذف ويُعاد إنشاؤه كل جلسة (conftest)، لا يُتتبَّع.
+tests/_data_isolated/
+
 # IDE
 .vscode/
 .idea/
