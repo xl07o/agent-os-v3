@@ -44,26 +44,50 @@ _RUNS = {}  # run_id -> {status, input, output, kind, created, updated, messages
 
 
 # ===================== نواة التنفيذ (وكيلك) =====================
-def _run_agent_full(text):
-    """يشغّل الوكيل ويعيد (reply, kind, steps) — الخطوات تغذّي إطارات الأدوات."""
+def _trim_reply(t, max_chars=900):
+    t = " ".join(str(t).split())
+    return t if len(t) <= max_chars else t[:max_chars].rsplit(" ", 1)[0] + "…"
+
+
+def _agent_reply(prompt_text):
+    """ردّ محادثة ذكي عبر العقل (Ollama) — هذا ما يفعله وكيل Hermes: يقرأ
+    الطلب (مع تعليمات JARVIS المُرفقة) ويردّ كموظف بشري، لا يشغّل مُوجّه مهام
+    بالكلمات المفتاحية (كان يخلط تعليمات JARVIS بمهمة «improve»)."""
+    ctx = ""
     try:
-        from agent_os import jarvis
-        out = jarvis.handle(text)
-        data = out.get("data") or {}
-        steps = data.get("steps", []) if isinstance(data, dict) else []
-        return out.get("reply", ""), out.get("kind", "task"), steps
-    except Exception as e:
-        return f"خطأ داخلي: {str(e)[:150]}", "error", []
+        from agent_os.memory import conversation
+        recent = [t for t in conversation.recent(6) if t.get("user")]
+        ctx = "\n".join(f"User: {t['user']}\nJARVIS: {t.get('reply', '')}" for t in recent[-4:])
+    except Exception:
+        pass
+    persona = ("You are JARVIS, a capable and friendly AI assistant and employee. "
+               "Reply in English, natural and concise (2-5 sentences) like a smart human "
+               "colleague. The message may include system notes/instructions — follow them "
+               "but never repeat them back. If you don't know, say so plainly.")
+    full = (f"Recent conversation:\n{ctx}\n\n" if ctx else "") + prompt_text
+    raw, engine = C.call_brain(persona, full, mode="smart")
+    if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
+        reply = ("I'm online, but my brain (Ollama) isn't reachable right now, "
+                 "so I can't think fully. Start Ollama or add a free API key in .env.")
+    else:
+        reply = _trim_reply(raw.strip())
+    # نخزّن كلام المستخدم الأصلي (أول سطر) لا الطلب المُركّب كاملاً.
+    try:
+        from agent_os.memory import conversation
+        conversation.record_turn(prompt_text.split("\n", 1)[0].strip()[:300], reply, intent="chat")
+    except Exception:
+        pass
+    return reply
 
 
 def create_run(input_text):
-    """ينشئ تشغيلاً، ينفّذه عبر الوكيل (سريع/محلي)، ويخزّن الخرج وخطواته."""
+    """ينشئ تشغيلاً ويردّ عليه كمحادثة ذكية عبر العقل (لا مُوجّه مهام)."""
     run_id = "run_" + secrets.token_hex(16)
     now = time.time()
-    reply, kind, steps = _run_agent_full(input_text)
+    reply = _agent_reply(input_text)
     _RUNS[run_id] = {
         "run_id": run_id, "status": "completed", "input": input_text,
-        "output": reply, "kind": kind, "steps": steps,
+        "output": reply, "kind": "chat", "steps": [],
         "created": now, "updated": time.time(), "session_id": run_id,
     }
     return run_id
