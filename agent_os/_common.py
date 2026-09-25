@@ -29,7 +29,8 @@ LOG_FILE = os.path.join(LOG_DIR, "agent_os.log")
 def log(msg, level="INFO"):
     """تسجيل بالعربية مع وقت — مضمون قيود الأمان."""
     line = f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] [{level}] {msg}"
-    print(line)
+    # السجلّات إلى stderr حتى لا تلوّث مخرجات JSON للأوامر (ultra/jarvis).
+    print(line, file=sys.stderr)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
