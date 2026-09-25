@@ -37,7 +37,8 @@ def test_run_status_and_transcript():
     s, run = H.handle_rest("GET", f"/v1/runs/{rid}", "", {}, None)
     assert s == 200 and run["status"] == "completed" and run["output"]
     s2, msgs = H.handle_rest("GET", f"/api/sessions/{rid}/messages", "", {}, None)
-    assert s2 == 200 and len(msgs["data"]) == 2
+    assert s2 == 200 and len(msgs["data"]) >= 2
+    assert msgs["data"][0]["role"] == "user" and msgs["data"][-1]["role"] == "assistant"
 
 def test_unknown_run_404():
     assert H.handle_rest("GET", "/v1/runs/run_nope", "", {}, None)[0] == 404
@@ -52,3 +53,18 @@ def test_client_unavailable_is_honest():
 
 def test_client_empty_prompt():
     assert HC.ask("")["ok"] is False
+
+
+# ===== إطارات الأدوات تُضيء لوحات JARVIS =====
+def test_events_include_tool_frames_from_steps():
+    _, o = H.handle_rest("POST", "/v1/runs", "", {}, json.dumps({"input": "سجّل هدف بناء متجر"}))
+    frames = list(H.run_frames(o["run_id"]))
+    events = [json.loads(f[5:])["event"] for f in frames if f.startswith("data:")]
+    assert "tool.started" in events and "tool.completed" in events
+    assert events.index("tool.started") < events.index("run.completed")
+
+def test_session_messages_have_tool_rows():
+    _, o = H.handle_rest("POST", "/v1/runs", "", {}, json.dumps({"input": "سجّل هدف متجر"}))
+    _, msgs = H.handle_rest("GET", f"/api/sessions/{o['run_id']}/messages", "", {}, None)
+    roles = [m["role"] for m in msgs["data"]]
+    assert "tool" in roles and roles[0] == "user" and roles[-1] == "assistant"

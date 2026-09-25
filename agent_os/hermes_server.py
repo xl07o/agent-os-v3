@@ -44,42 +44,57 @@ _RUNS = {}  # run_id -> {status, input, output, kind, created, updated, messages
 
 
 # ===================== نواة التنفيذ (وكيلك) =====================
-def _run_agent(text):
-    """يشغّل وكيلك على الأمر ويعيد (reply, kind)."""
+def _run_agent_full(text):
+    """يشغّل الوكيل ويعيد (reply, kind, steps) — الخطوات تغذّي إطارات الأدوات."""
     try:
         from agent_os import jarvis
         out = jarvis.handle(text)
-        return out.get("reply", ""), out.get("kind", "task")
+        data = out.get("data") or {}
+        steps = data.get("steps", []) if isinstance(data, dict) else []
+        return out.get("reply", ""), out.get("kind", "task"), steps
     except Exception as e:
-        return f"خطأ داخلي: {str(e)[:150]}", "error"
+        return f"خطأ داخلي: {str(e)[:150]}", "error", []
 
 
 def create_run(input_text):
-    """ينشئ تشغيلاً، ينفّذه عبر الوكيل (سريع/محلي)، ويخزّن الخرج."""
+    """ينشئ تشغيلاً، ينفّذه عبر الوكيل (سريع/محلي)، ويخزّن الخرج وخطواته."""
     run_id = "run_" + secrets.token_hex(16)
     now = time.time()
-    reply, kind = _run_agent(input_text)
+    reply, kind, steps = _run_agent_full(input_text)
     _RUNS[run_id] = {
         "run_id": run_id, "status": "completed", "input": input_text,
-        "output": reply, "kind": kind, "created": now, "updated": time.time(),
-        "session_id": run_id,
+        "output": reply, "kind": kind, "steps": steps,
+        "created": now, "updated": time.time(), "session_id": run_id,
     }
     return run_id
 
 
 def run_frames(run_id):
-    """مولّد إطارات SSE لتشغيلٍ (بصيغة Hermes: أسطر data: فقط)."""
+    """مولّد إطارات SSE لتشغيلٍ (بصيغة Hermes: أسطر data: فقط).
+    يبثّ إطارات الأدوات من خطوات الوكيل الفعلية لتُضيء لوحات JARVIS، ثم النص."""
     run = _RUNS.get(run_id)
     if not run:
         yield _sse({"event": "error", "run_id": run_id,
                     "error": {"code": "run_not_found", "message": f"Run not found: {run_id}"}})
         yield ": stream closed\n"
         return
+
+    # 1) خطوات الوكيل → إطارات tool.started / tool.completed (كصيغة Hermes الملتقَطة).
+    for st in run.get("steps", []):
+        action = st.get("action", "step")
+        ts = time.time()
+        yield _sse({"event": "tool.started", "run_id": run_id, "timestamp": ts,
+                    "tool": action, "preview": st.get("target", action)})
+        yield _sse({"event": "tool.completed", "run_id": run_id, "timestamp": time.time(),
+                    "tool": action, "duration": 0.01, "error": not st.get("done", True)})
+
+    # 2) الرد النصي على شكل message.delta (كلمة بكلمة).
     reply = run["output"] or ""
-    # نبثّ الرد على شكل message.delta (كلمة بكلمة) ثم run.completed — كما يتوقّع المُحلّل.
     for word in reply.split(" "):
         yield _sse({"event": "message.delta", "run_id": run_id,
                     "timestamp": time.time(), "delta": word + " "})
+
+    # 3) الختام.
     yield _sse({"event": "run.completed", "run_id": run_id, "timestamp": time.time(),
                 "output": reply, "usage": {"input_tokens": 0, "output_tokens": len(reply.split()),
                                            "total_tokens": len(reply.split())}})
@@ -171,9 +186,18 @@ def handle_rest(method, path, query, headers, body):
         run = _RUNS.get(rid)
         rows = []
         if run:
-            rows = [{"id": 1, "role": "user", "content": run["input"], "timestamp": run["created"]},
-                    {"id": 2, "role": "assistant", "content": run["output"],
-                     "reasoning": "", "tool_calls": [], "timestamp": run["updated"]}]
+            rows.append({"id": 1, "role": "user", "content": run["input"], "timestamp": run["created"]})
+            # صفوف الأدوات من خطوات الوكيل (تُغذّي لوحة الطرفية في JARVIS).
+            for i, st in enumerate(run.get("steps", []), start=2):
+                rows.append({"id": i, "role": "tool", "tool_name": st.get("action", "step"),
+                             "tool_call_id": f"call_{i}",
+                             "content": json.dumps({"output": st.get("target", ""),
+                                                    "exit_code": 0 if st.get("done", True) else 1,
+                                                    "error": None if st.get("done", True) else "لم تكتمل"},
+                                                   ensure_ascii=False),
+                             "timestamp": run["updated"]})
+            rows.append({"id": len(rows) + 1, "role": "assistant", "content": run["output"],
+                         "reasoning": "", "tool_calls": [], "timestamp": run["updated"]})
         return 200, {"object": "list", "session_id": rid, "data": rows,
                      "pagination": {"limit": 500, "offset": 0, "order": "latest", "returned": len(rows)}}
 
