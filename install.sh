@@ -13,14 +13,20 @@ PY=python3
 command -v $PY >/dev/null 2>&1 || PY=python
 echo "→ Python: $($PY --version 2>&1)"
 
-echo "→ تثبيت الأساسي (نواة + اختبارات) …"
-$PY -m pip install -q --disable-pip-version-check \
-  pytest python-dotenv beautifulsoup4 lxml requests 2>&1 | tail -1 || true
+# بعض التوزيعات (Python 3.12+ / PEP 668) تمنع pip على نظام الحزم. نتجاوزه بأمان
+# داخل WSL/VM المخصّصة للمشروع عبر --break-system-packages إن لزم.
+PIPFLAGS="-q --disable-pip-version-check"
+if $PY -m pip install $PIPFLAGS pip >/dev/null 2>&1; then :; else PIPFLAGS="$PIPFLAGS --break-system-packages"; fi
 
-echo "→ محاولة تثبيت الإضافات (تحكم الجهاز/الصوت — قد تفشل في بيئة بلا شاشة) …"
-$PY -m pip install -q --disable-pip-version-check -r requirements.txt >/dev/null 2>&1 \
+echo "→ تثبيت الأساسي (نواة + اختبارات) …"
+# لا نُدرج lxml في الأساسي (قد لا تتوفّر له عجلة على بايثون حديث جداً)؛ bs4 يعمل بدونه.
+$PY -m pip install $PIPFLAGS pytest python-dotenv beautifulsoup4 requests 2>&1 | tail -1 \
+  || echo "   ⚠️ تعذّر بعض الأساسي — النواة والجسر يعملان بمكتبات بايثون الأساسية"
+
+echo "→ محاولة تثبيت الإضافات (تحكم الجهاز/الصوت/lxml — قد تفشل، غير حرجة) …"
+$PY -m pip install $PIPFLAGS -r requirements.txt >/dev/null 2>&1 \
   && echo "   ✅ كل الاعتماديات" \
-  || echo "   ⚠️ بعض اعتماديات الواجهة تُثبَّت على جهاز رسومي فقط — النواة تعمل بدونها"
+  || echo "   ⚠️ بعض الإضافات تُثبَّت على جهاز رسومي فقط — النواة تعمل بدونها"
 
 # العقل (اختياري): إن وُجد Ollama نحمّل نموذجاً صغيراً مجانياً.
 if command -v ollama >/dev/null 2>&1; then
