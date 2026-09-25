@@ -429,54 +429,68 @@ def _call_openrouter(msgs):
 
 
 _GROQ_MODEL_CACHE = None
+# عائلات نماذج المحادثة المعروفة (LLM نصّي)؛ ما عداها (صوت/رؤية/حماية) يُستبعد.
+_CHAT_FAMILIES = ("llama", "gemma", "qwen", "mixtral", "mistral", "deepseek", "kimi", "gpt-oss", "compound")
+_NON_CHAT = ("whisper", "tts", "guard", "embed", "vision", "orpheus", "playai",
+             "speech", "moderation", "distil", "audio", "-image")
 
 
-def _groq_model(key):
-    """يكتشف نموذج Groq متاح لهذا الحساب تلقائياً (أسماء Groq تتغيّر).
-    الأولوية للنماذج الأكبر (70b/versatile) ثم السريعة، مع تجاهل whisper/tts/guard.
-    يُحترم GROQ_MODEL إن ضُبط يدوياً."""
-    global _GROQ_MODEL_CACHE
+def _groq_models(key):
+    """قائمة مرتّبة بنماذج محادثة Groq المتاحة لهذا الحساب (أفضلها أولاً).
+    يُحترم GROQ_MODEL إن ضُبط. يستبعد نماذج الصوت/الرؤية التي تسبب 400/404."""
     env = os.getenv("GROQ_MODEL")
     if env:
-        return env
-    if _GROQ_MODEL_CACHE:
-        return _GROQ_MODEL_CACHE
+        return [env]
     try:
         data = _safe_request("https://api.groq.com/openai/v1/models", None,
                              {"Authorization": f"Bearer {key}"}, method="GET")
         ids = [m["id"] for m in data.get("data", []) if isinstance(m, dict) and m.get("id")]
-
-        def score(mid):
-            m = mid.lower()
-            if any(x in m for x in ("whisper", "tts", "guard", "embed", "vision")):
-                return -1
-            s = 0
-            if "70b" in m or "versatile" in m:
-                s += 3
-            if "llama" in m:
-                s += 1
-            if "instant" in m or "8b" in m:
-                s += 1
-            return s
-
-        cand = sorted([i for i in ids if score(i) >= 0], key=score, reverse=True)
-        if cand:
-            _GROQ_MODEL_CACHE = cand[0]
-            return cand[0]
     except Exception:
-        pass
-    return "llama-3.1-8b-instant"  # احتياط شائع التوفّر
+        ids = []
+
+    def ok(mid):
+        m = mid.lower()
+        return any(f in m for f in _CHAT_FAMILIES) and not any(x in m for x in _NON_CHAT)
+
+    def score(mid):
+        m = mid.lower()
+        s = 0
+        if "70b" in m or "versatile" in m:
+            s += 3
+        if "llama" in m:
+            s += 1
+        if "instant" in m or "8b" in m:
+            s += 1
+        return s
+
+    cand = sorted([i for i in ids if ok(i)], key=score, reverse=True)
+    # احتياطات شائعة التوفّر إن فشل الاكتشاف
+    for fb in ("llama-3.1-8b-instant", "llama3-8b-8192", "gemma2-9b-it"):
+        if fb not in cand:
+            cand.append(fb)
+    return cand
 
 
 def _call_groq(msgs):
+    global _GROQ_MODEL_CACHE
     key = os.getenv("GROQ_API_KEY")
-    model = _groq_model(key)
-    data = _safe_request(
-        "https://api.groq.com/openai/v1/chat/completions",
-        {"model": model, "messages": msgs},
-        {"Authorization": f"Bearer {key}"},
-    )
-    return data["choices"][0]["message"]["content"].strip(), "groq"
+    models = ([_GROQ_MODEL_CACHE] if _GROQ_MODEL_CACHE else []) + _groq_models(key)
+    last = None
+    for model in models:
+        if not model:
+            continue
+        try:
+            data = _safe_request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                {"model": model, "messages": msgs},
+                {"Authorization": f"Bearer {key}"},
+            )
+            _GROQ_MODEL_CACHE = model  # نثبّت أول نموذج ناجح
+            return data["choices"][0]["message"]["content"].strip(), "groq"
+        except Exception as e:
+            last = e
+            continue  # نموذج مرفوض (شروط/404) → جرّب التالي
+    raise Exception(f"كل نماذج Groq فشلت: {last}")
 
 
 def _call_nvidia(msgs):
