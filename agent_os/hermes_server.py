@@ -83,13 +83,30 @@ def _agent_reply(prompt_text):
 
 
 def create_run(input_text):
-    """ينشئ تشغيلاً ويردّ عليه كمحادثة ذكية عبر العقل (لا مُوجّه مهام)."""
+    """ينشئ تشغيلاً: وكيل تنفيذي (ينفّذ أوامر فعلاً) إن كان JARVIS_EXEC مفعّلاً،
+    وإلا محادثة ذكية فقط. العقل يقرّر chat أو أوامر."""
     run_id = "run_" + secrets.token_hex(16)
     now = time.time()
-    reply = _agent_reply(input_text)
+    steps = []
+    try:
+        from agent_os import agent_loop
+        if agent_loop.exec_enabled():
+            r = agent_loop.run_agentic(input_text)
+            reply, steps = r.get("reply", ""), r.get("steps", [])
+        else:
+            reply = _agent_reply(input_text)
+    except Exception as e:
+        reply = _agent_reply(input_text)  # fallback إلى المحادثة عند أي خلل
+        C.log(f"agent_loop fallback: {str(e)[:120]}")
+    # نخزّن المحادثة كمرجع
+    try:
+        from agent_os.memory import conversation
+        conversation.record_turn(input_text.split("\n", 1)[0].strip()[:300], reply, intent="agent")
+    except Exception:
+        pass
     _RUNS[run_id] = {
         "run_id": run_id, "status": "completed", "input": input_text,
-        "output": reply, "kind": "chat", "steps": [],
+        "output": reply, "kind": "agent", "steps": [{"action": s["cmd"][:40], "done": s["ok"]} for s in steps],
         "created": now, "updated": time.time(), "session_id": run_id,
     }
     return run_id
