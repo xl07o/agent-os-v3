@@ -41,6 +41,8 @@ _SYS = (
     "LEARN: <topic>  (learn it from the web and store it)\n"
     "FINANCE: <idea> | <monthly_revenue> <cost> <effort_days>  (evaluate an opportunity)\n"
     "REMEMBER: <fact>  (store a fact)\n"
+    "WRITE: <path> | <file content>  (create/write a file in the home folder — really does it)\n"
+    "MKDIR: <path>  (create a folder in the home folder)\n"
     "STATUS: -  (system readiness: brain, memory, voice)\n"
     "SCOPE: <host> | <scope1,scope2>  (security: is host in the authorized scope?)\n"
     "IMPROVE: -  (start a background self-improvement cycle)\n"
@@ -49,7 +51,10 @@ _SYS = (
     "PROPOSE: <command>  (a system-changing command; sent to the owner for approval, not run)\n"
     "DONE: <final answer or chat reply>\n"
     "Use tools only when they help; for casual chat reply DONE directly. Never chain shell "
-    "commands or use sudo/rm; long processes must be proposed, not run."
+    "commands or use sudo/rm; long processes must be proposed, not run. "
+    "IMPORTANT: before DONE, VERIFY your work — after WRITE re-read the file (RUN: cat <path>) "
+    "to confirm it was written correctly; after an action, re-check the result once. Never "
+    "claim success without checking."
 )
 
 
@@ -118,6 +123,48 @@ def _tool_finance(spec):
         return f"verdict={r['verdict']} roi={r['roi']} payback_days={r['payback_days']} — {r['reasons'][0]}"
     except Exception as e:
         return f"[finance error: {str(e)[:100]}]"
+
+
+_HOME = os.path.expanduser("~")
+
+
+def _safe_home_path(rel):
+    """يحصر المسار داخل مجلد المستخدم فقط (لا يخرج عنه) — أمان بالبناء."""
+    rel = rel.strip().strip("`").strip()
+    full = os.path.abspath(rel if os.path.isabs(rel) else os.path.join(_HOME, rel))
+    try:
+        if os.path.commonpath([_HOME, full]) != _HOME:
+            return None
+    except ValueError:
+        return None
+    return full
+
+
+def _tool_write(spec):
+    """ينشئ/يكتب ملفاً داخل مجلد المستخدم فقط (بلا shell، بلا تنفيذ) — «يسوّي» بأمان."""
+    path, _, content = spec.partition("|")
+    full = _safe_home_path(path)
+    if not full:
+        return "[refused: path must be inside your home folder]"
+    try:
+        os.makedirs(os.path.dirname(full) or _HOME, exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(content.lstrip("\n"))
+        return f"wrote {len(content)} chars to {full}"
+    except Exception as e:
+        return f"[write error: {str(e)[:120]}]"
+
+
+def _tool_mkdir(path):
+    """ينشئ مجلداً داخل مجلد المستخدم فقط."""
+    full = _safe_home_path(path)
+    if not full:
+        return "[refused: path must be inside your home folder]"
+    try:
+        os.makedirs(full, exist_ok=True)
+        return f"created folder {full}"
+    except Exception as e:
+        return f"[mkdir error: {str(e)[:120]}]"
 
 
 def _tool_remember(fact):
@@ -222,6 +269,7 @@ def run_agentic(task, max_steps=8, cwd=None):
     handlers = {
         "RECALL": _tool_recall, "LEARN": _tool_learn,
         "FINANCE": _tool_finance, "REMEMBER": _tool_remember,
+        "WRITE": _tool_write, "MKDIR": _tool_mkdir,
         "STATUS": _tool_status, "SCOPE": _tool_scope,
         "IMPROVE": _tool_improve, "IDLE": _tool_idle,
     }
@@ -236,7 +284,7 @@ def run_agentic(task, max_steps=8, cwd=None):
         line = raw.strip()
 
         done_m = re.search(r"(?mi)^\s*DONE:\s*(.+)$", line, re.S)
-        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|STATUS|SCOPE|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line)
+        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|WRITE|MKDIR|STATUS|SCOPE|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line, re.S)
 
         # DONE قبل أي أداة → انتهى
         if done_m and (not verb_m or done_m.start() < verb_m.start()):

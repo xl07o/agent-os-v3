@@ -56,3 +56,20 @@ def test_all_capability_verbs_registered():
     src = inspect.getsource(A.run_agentic)
     for verb in ["RECALL", "LEARN", "FINANCE", "REMEMBER", "STATUS", "SCOPE", "IMPROVE", "IDLE", "RUN", "PROPOSE"]:
         assert verb in src, verb
+
+
+def test_write_and_mkdir_confined_to_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(A, "_HOME", str(tmp_path))
+    r = A._tool_write("proj/app.py | print('x')")
+    assert "wrote" in r and (tmp_path / "proj/app.py").read_text().strip() == "print('x')"
+    assert "created" in A._tool_mkdir("proj/sub") and (tmp_path / "proj/sub").is_dir()
+
+def test_write_refuses_outside_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(A, "_HOME", str(tmp_path))
+    assert "refused" in A._tool_write("/etc/evil | x")
+    assert "refused" in A._tool_mkdir("../../etc/x")
+
+def test_write_mkdir_verbs_registered():
+    import inspect
+    src = inspect.getsource(A.run_agentic)
+    assert "WRITE" in src and "MKDIR" in src
