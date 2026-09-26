@@ -23,3 +23,22 @@ def test_exec_toggle_env():
         os.environ.pop("JARVIS_EXEC", None)
     else:
         os.environ["JARVIS_EXEC"] = old
+
+
+def test_tool_remember_then_recall():
+    A._tool_remember("owner likes cybersecurity and python")
+    out = A._tool_recall("cybersecurity python")
+    assert "cybersecurity" in out.lower() or "python" in out.lower()
+
+def test_tool_finance_returns_verdict():
+    out = A._tool_finance("paid CLI tool | 300 0 2")
+    assert "verdict=" in out and ("go" in out or "no-go" in out)
+
+def test_tool_learn_honest_without_network():
+    out = A._tool_learn("some unique offline topic zzz")
+    assert "learned" in out or "couldn't" in out  # صادق في الحالتين
+
+def test_memory_context_builds_string():
+    A._tool_remember("build an e-commerce store")
+    ctx = A._memory_context("store")
+    assert isinstance(ctx, str)

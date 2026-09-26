@@ -1,18 +1,20 @@
 """
-agent_loop.py - حلقة وكيل تنفيذية آمنة (قراءة تلقائية + موافقة للتغيير)
+agent_loop.py - حلقة وكيل بأدوات: تجعل JARVIS واجهةً لكل قدرات Agent OS
 =====================================================================
-يجعل JARVIS يفعل لا يحادث فقط، لكن بأمان بحسب دستور المالك (البند 8:
-«بموافقتي على أي شيء يؤثر على نظامي»):
+العقل (Groq/Ollama عبر brain) يقرّر أداةً كل خطوة، والحلقة تنفّذها فعلياً ثم
+تعيد له الناتج حتى يكمل. قبل كل مهمة يستدعي ذاكرته (البنود 3/11/12) فيبني
+على خبرته. الأدوات تربط الميزات الحقيقية:
 
-  • أوامر قراءة/فحص آمنة (ls, cat, df, ps, uname, git status ...) تُنفَّذ
-    تلقائياً — فيقرأ حالة جهازك ويجاوب.
-  • أي أمر يغيّر النظام (تثبيت، حذف، تعديل، تشغيل) لا يُنفَّذ تلقائياً؛
-    يُقترح ويُرفع لموافقتك (approval_center) — لا يتصرّف وحده.
+  RECALL  <query>            ذاكرة طويلة الأمد (تجارب + معرفة)         [آمن]
+  LEARN   <topic>            يتعلّم من الويب ويخزّنه (البند 1)          [آمن]
+  FINANCE <idea>|<rev> <cost> <days>  جدوى فرصة (البند 7)             [آمن]
+  REMEMBER<fact>             يخزّن معلومة كمرجع (البند 12)             [آمن]
+  RUN     <read-only cmd>    يفحص الجهاز (ls/df/cat/ps/uname...)        [آمن]
+  PROPOSE <cmd>              أمر يغيّر النظام → لموافقتك (البند 8)      [بموافقة]
+  DONE    <answer>           ينهي / يردّ محادثة
 
-هذا ليس وكيلاً «ينفّذ أي شيء يقرّره النموذج»: القائمة البيضاء صارمة، وسلاسل
-الأوامر (; && | > `` $()) مرفوضة، فلا يُمكن تهريب أمر خطير خلف أمر آمن.
-
-  run_agentic(task, max_steps, cwd) -> {reply, steps, pending_approvals, engine}
+الأمان: RUN قراءة فقط (قائمة بيضاء صارمة، بلا تسلسل/تهريب)؛ أي تغيير يُقترَح
+ولا يُنفَّذ إلا بموافقتك. يُطفأ التنفيذ بـ JARVIS_EXEC=0 (محادثة فقط).
 """
 
 import os
@@ -24,23 +26,26 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent_os import _common as C
 
-# أوامر قراءة/فحص فقط — لا تغيّر النظام — تُنفَّذ تلقائياً.
 _SAFE_READONLY = {
     "ls", "cat", "head", "tail", "pwd", "whoami", "date", "uname", "df", "free",
     "ps", "uptime", "echo", "find", "grep", "wc", "du", "stat", "env", "printenv",
     "which", "hostname", "id", "cut", "sort", "uniq", "cal", "tree", "file",
     "lscpu", "lsblk", "nproc", "history", "ip", "ss",
 }
-# رموز تسمح بتسلسل أوامر — نرفض أي أمر يحويها (منع التهريب).
 _CHAIN = re.compile(r"[;&|`$><]|\bsudo\b|\brm\b")
 
 _SYS = (
-    "You are JARVIS, an agent on a Linux machine. Reply in English, concise. "
-    "To inspect the system, output one line: RUN: <read-only command> (e.g. ls, df -h, "
-    "cat file, ps aux, uname -a). Only read-only inspection commands run automatically. "
-    "For anything that changes the system (install, delete, write, start a service), "
-    "output: PROPOSE: <command> — it will be sent to the owner for approval, not run. "
-    "When done, output: DONE: <short answer>. For chat, just output DONE: <reply>."
+    "You are JARVIS, a capable AI agent+employee with real tools and long-term memory. "
+    "Reply in English, concise. Each step output ONE line, one of:\n"
+    "RECALL: <query>  (search your memory)\n"
+    "LEARN: <topic>  (learn it from the web and store it)\n"
+    "FINANCE: <idea> | <monthly_revenue> <cost> <effort_days>  (evaluate an opportunity)\n"
+    "REMEMBER: <fact>  (store a fact)\n"
+    "RUN: <read-only shell command>  (inspect the machine)\n"
+    "PROPOSE: <command>  (a system-changing command; sent to the owner for approval, not run)\n"
+    "DONE: <final answer or chat reply>\n"
+    "Use tools only when they help; for casual chat reply DONE directly. Never chain shell "
+    "commands or use sudo/rm; long processes must be proposed, not run."
 )
 
 
@@ -49,7 +54,6 @@ def exec_enabled():
 
 
 def _is_safe_readonly(cmd):
-    """أمر آمن = أول رمز في القائمة البيضاء، وبلا تسلسل/تهريب."""
     cmd = cmd.strip()
     if _CHAIN.search(cmd):
         return False
@@ -61,37 +65,105 @@ def _is_safe_readonly(cmd):
 
 
 def _run_readonly(cmd, cwd=None, timeout=20):
-    """ينفّذ أمر قراءة آمناً (بلا shell، بلا تسلسل)."""
     if not _is_safe_readonly(cmd):
-        return {"ok": False, "output": "[not a safe read-only command]"}
+        return "[not a safe read-only command]"
     try:
-        p = subprocess.run(shlex.split(cmd), capture_output=True, text=True,
-                           timeout=timeout, cwd=cwd or os.path.expanduser("~"),
-                           encoding="utf-8", errors="replace")
-        out = (p.stdout + p.stderr).strip()
-        return {"ok": p.returncode == 0, "output": out[-2500:] or "(no output)"}
+        p = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=timeout,
+                           cwd=cwd or os.path.expanduser("~"), encoding="utf-8", errors="replace")
+        return ((p.stdout + p.stderr).strip()[-2500:]) or "(no output)"
     except subprocess.TimeoutExpired:
-        return {"ok": False, "output": f"[timed out after {timeout}s]"}
+        return f"[timed out after {timeout}s]"
     except Exception as e:
-        return {"ok": False, "output": f"[error: {str(e)[:150]}]"}
+        return f"[error: {str(e)[:150]}]"
+
+
+# ---- أدوات القدرات (كلها آمنة/غير مدمّرة) ----
+def _tool_recall(q):
+    try:
+        from agent_os.memory import contextual_memory as cm, provenance
+        hits = cm.recall(q, limit=3)
+        out = [f"- {h.get('task', '')}: {h.get('solution', '')[:100]} ({h.get('outcome')})" for h in hits]
+        p = provenance.get(q)
+        if p:
+            out.append(f"- fact: {str(p.get('value'))[:120]}")
+        return "\n".join(out) if out else "(nothing relevant in memory)"
+    except Exception as e:
+        return f"[recall error: {str(e)[:100]}]"
+
+
+def _tool_learn(topic):
+    try:
+        from agent_os.learn import ingest
+        r = ingest.learn_query(topic)
+        return (f"learned from {len(r.get('ingested', []))} sources about '{topic}'"
+                if r.get("ok") else f"couldn't learn '{topic}' (no network/results)")
+    except Exception as e:
+        return f"[learn error: {str(e)[:100]}]"
+
+
+def _tool_finance(spec):
+    try:
+        from agent_os import finance_brain
+        idea, _, tail = spec.partition("|")
+        nums = [float(x) for x in re.findall(r"-?\d+\.?\d*", tail)]
+        rev = nums[0] if nums else 0
+        cost = nums[1] if len(nums) > 1 else 0
+        days = nums[2] if len(nums) > 2 else 1
+        r = finance_brain.evaluate(idea.strip() or "opportunity", cost_usd=cost,
+                                   monthly_revenue_usd=rev, effort_days=days)
+        return f"verdict={r['verdict']} roi={r['roi']} payback_days={r['payback_days']} — {r['reasons'][0]}"
+    except Exception as e:
+        return f"[finance error: {str(e)[:100]}]"
+
+
+def _tool_remember(fact):
+    try:
+        from agent_os.memory import provenance, contextual_memory as cm
+        provenance.record(f"note:{fact[:40]}", fact, source="user", confidence=0.9, kind="fact")
+        cm.save_experience(task=fact[:120], approach="note", tools=[], problem="",
+                           solution=fact, outcome="stored")
+        return "stored to long-term memory"
+    except Exception as e:
+        return f"[remember error: {str(e)[:100]}]"
 
 
 def _propose(cmd, task):
-    """يرفع أمراً مُغيِّراً لموافقة المالك بدل تنفيذه."""
     try:
         from agent_os import approval_center
-        req = approval_center.create_request(f"JARVIS يريد تنفيذ: {cmd[:80]}",
-                                             why=f"لتنفيذ: {task[:80]}")
+        req = approval_center.create_request(f"JARVIS wants to run: {cmd[:80]}", why=f"for: {task[:80]}")
         return req.get("id") if isinstance(req, dict) else None
     except Exception:
         return None
 
 
-def run_agentic(task, max_steps=6, cwd=None):
-    """حلقة: العقل يقرأ الجهاز بأوامر آمنة، ويقترح المُغيِّرات لموافقتك."""
-    transcript = [f"Task: {task}"]
+def _memory_context(task):
+    """يستدعي الذاكرة قبل البدء — يبني على الخبرة (البنود 3/11/12)."""
+    bits = []
+    try:
+        from agent_os.memory import contextual_memory as cm, conversation
+        hits = cm.recall(task, limit=2)
+        if hits:
+            bits.append("Relevant memory: " + "; ".join(h.get("solution", "")[:70] for h in hits if h.get("solution")))
+        pr = conversation.priorities(3)
+        if pr:
+            bits.append("Owner priorities: " + ", ".join(p["topic"] for p in pr))
+    except Exception:
+        pass
+    return " | ".join(bits)
+
+
+def run_agentic(task, max_steps=8, cwd=None):
+    """حلقة أدوات: استدعاء ذاكرة → خطوات أدوات → جواب. يعيد ما فعله وما ينتظر موافقة."""
+    ctx = _memory_context(task)
+    transcript = ([f"(memory) {ctx}"] if ctx else []) + [f"Task: {task}"]
     steps, pending = [], []
     last_engine = None
+
+    handlers = {
+        "RECALL": _tool_recall, "LEARN": _tool_learn,
+        "FINANCE": _tool_finance, "REMEMBER": _tool_remember,
+    }
+
     for _ in range(max_steps):
         prompt = "\n".join(transcript) + "\nJARVIS:"
         raw, engine = C.call_brain(_SYS, prompt, mode="fastest")
@@ -100,34 +172,40 @@ def run_agentic(task, max_steps=6, cwd=None):
             return {"reply": "I can't reach a thinking brain right now.",
                     "steps": steps, "pending_approvals": pending, "engine": engine}
         line = raw.strip()
-        run_m = re.search(r"(?mi)^\s*RUN:\s*(.+)$", line)
-        prop_m = re.search(r"(?mi)^\s*PROPOSE:\s*(.+)$", line)
-        done_m = re.search(r"(?mi)^\s*DONE:\s*(.+)$", line, re.S)
 
-        if done_m and (not run_m or done_m.start() < run_m.start()) and \
-           (not prop_m or done_m.start() < prop_m.start()):
+        done_m = re.search(r"(?mi)^\s*DONE:\s*(.+)$", line, re.S)
+        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|RUN|PROPOSE):\s*(.+)$", line)
+
+        # DONE قبل أي أداة → انتهى
+        if done_m and (not verb_m or done_m.start() < verb_m.start()):
             reply = done_m.group(1).strip()
             if pending:
-                reply += f"\n(Proposed {len(pending)} command(s) awaiting your approval.)"
+                reply += f"\n({len(pending)} command(s) await your approval.)"
             return {"reply": reply, "steps": steps, "pending_approvals": pending, "engine": engine}
 
-        if run_m and (not prop_m or run_m.start() < prop_m.start()):
-            cmd = run_m.group(1).strip().strip("`").strip()
-            res = _run_readonly(cmd, cwd=cwd)
-            steps.append({"cmd": cmd, "ok": res["ok"], "output": res["output"][:300]})
-            C.log(f"🔎 RUN(ro): {cmd} → ok={res['ok']}")
-            transcript.append(f"JARVIS: RUN: {cmd}")
-            transcript.append(f"OUTPUT:\n{res['output'][:1200]}")
-            continue
-
-        if prop_m:
-            cmd = prop_m.group(1).strip().strip("`").strip()
-            rid = _propose(cmd, task)
-            pending.append({"cmd": cmd, "request_id": rid})
-            C.log(f"📝 PROPOSE (needs approval): {cmd}")
-            transcript.append(f"JARVIS: PROPOSE: {cmd}")
-            transcript.append("OUTPUT: (queued for owner approval; not executed)")
-            continue
+        if verb_m:
+            verb, arg = verb_m.group(1).upper(), verb_m.group(2).strip().strip("`").strip()
+            if verb in handlers:
+                result = handlers[verb](arg)
+                steps.append({"tool": verb, "arg": arg[:60], "ok": True})
+                C.log(f"🧰 {verb}: {arg[:60]}")
+                transcript.append(f"JARVIS: {verb}: {arg}")
+                transcript.append(f"RESULT:\n{result[:1200]}")
+                continue
+            if verb == "RUN":
+                out = _run_readonly(arg, cwd=cwd)
+                steps.append({"tool": "RUN", "arg": arg[:60], "ok": not out.startswith("[")})
+                C.log(f"🔎 RUN(ro): {arg}")
+                transcript.append(f"JARVIS: RUN: {arg}")
+                transcript.append(f"OUTPUT:\n{out[:1200]}")
+                continue
+            if verb == "PROPOSE":
+                rid = _propose(arg, task)
+                pending.append({"cmd": arg, "request_id": rid})
+                C.log(f"📝 PROPOSE (approval): {arg}")
+                transcript.append(f"JARVIS: PROPOSE: {arg}")
+                transcript.append("RESULT: (queued for owner approval; not executed)")
+                continue
 
         return {"reply": line, "steps": steps, "pending_approvals": pending, "engine": engine}
 
