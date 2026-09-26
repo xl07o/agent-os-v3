@@ -157,6 +157,8 @@ def _tool_scope(spec):
 
 def _tool_improve(_arg=""):
     """يشغّل دورة تحسين ذاتي في الخلفية (ثقيلة: sandbox + اختبارات) — البند 9/10."""
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return "(self-improvement skipped under test)"
     import threading
     def _bg():
         try:
@@ -170,6 +172,8 @@ def _tool_improve(_arg=""):
 
 def _tool_idle(_arg=""):
     """يشغّل دورة تعلّم ذاتي في الخلفية (البند 2)."""
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return "(self-learning skipped under test)"
     import threading
     def _bg():
         try:

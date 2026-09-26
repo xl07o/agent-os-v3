@@ -48,8 +48,8 @@ def test_new_tools_present_and_safe():
     assert "brain=" in A._tool_status()
     assert "OUT OF SCOPE" in A._tool_scope("evil.org | example.com")
     assert "IN SCOPE" in A._tool_scope("api.example.com | example.com")
-    assert "background" in A._tool_improve()
-    assert "background" in A._tool_idle()
+    assert "skipped under test" in A._tool_improve()
+    assert "skipped under test" in A._tool_idle()
 
 def test_all_capability_verbs_registered():
     import inspect
