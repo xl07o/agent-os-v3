@@ -41,6 +41,10 @@ _SYS = (
     "LEARN: <topic>  (learn it from the web and store it)\n"
     "FINANCE: <idea> | <monthly_revenue> <cost> <effort_days>  (evaluate an opportunity)\n"
     "REMEMBER: <fact>  (store a fact)\n"
+    "STATUS: -  (system readiness: brain, memory, voice)\n"
+    "SCOPE: <host> | <scope1,scope2>  (security: is host in the authorized scope?)\n"
+    "IMPROVE: -  (start a background self-improvement cycle)\n"
+    "IDLE: -  (start a background self-learning cycle)\n"
     "RUN: <read-only shell command>  (inspect the machine)\n"
     "PROPOSE: <command>  (a system-changing command; sent to the owner for approval, not run)\n"
     "DONE: <final answer or chat reply>\n"
@@ -127,6 +131,58 @@ def _tool_remember(fact):
         return f"[remember error: {str(e)[:100]}]"
 
 
+def _tool_status(_arg=""):
+    try:
+        from agent_os import ultra
+        d = ultra.cmd_status(None)
+        prov = d.get("brain_providers_available") or "none"
+        m = d.get("memory", {})
+        return (f"brain={prov} · knowledge={m.get('knowledge_items')} · "
+                f"experiences={m.get('experiences')} · voice_ready={d.get('voice', {}).get('ready')}")
+    except Exception as e:
+        return f"[status error: {str(e)[:100]}]"
+
+
+def _tool_scope(spec):
+    """فحص نطاق أمني (البند 18): 'host | scope1,scope2' → مسموح أو مرفوض."""
+    try:
+        from agent_os import bounty_engine as be
+        host, _, sc = spec.partition("|")
+        scope = [s.strip() for s in sc.split(",") if s.strip()] or ["example.com"]
+        ok, msg = be.in_scope({"scope": scope}, host.strip())
+        return f"{'IN SCOPE ✓' if ok else 'OUT OF SCOPE 🚫'} — {msg}"
+    except Exception as e:
+        return f"[scope error: {str(e)[:100]}]"
+
+
+def _tool_improve(_arg=""):
+    """يشغّل دورة تحسين ذاتي في الخلفية (ثقيلة: sandbox + اختبارات) — البند 9/10."""
+    import threading
+    def _bg():
+        try:
+            from agent_os import self_improve_engine as sic
+            sic.improve_once(quiet=True)
+        except Exception:
+            pass
+    threading.Thread(target=_bg, daemon=True).start()
+    return "started a self-improvement cycle in the background (sandbox + tests; applies only if green)"
+
+
+def _tool_idle(_arg=""):
+    """يشغّل دورة تعلّم ذاتي في الخلفية (البند 2)."""
+    import threading
+    def _bg():
+        try:
+            from agent_os.learn import idle_learner
+            from agent_os.memory import conversation
+            goals = [p["topic"] for p in conversation.priorities(3)] or None
+            idle_learner.idle_learn_cycle(owner_goals=goals)
+        except Exception:
+            pass
+    threading.Thread(target=_bg, daemon=True).start()
+    return "started a background self-learning cycle based on your priorities"
+
+
 def _propose(cmd, task):
     try:
         from agent_os import approval_center
@@ -162,6 +218,8 @@ def run_agentic(task, max_steps=8, cwd=None):
     handlers = {
         "RECALL": _tool_recall, "LEARN": _tool_learn,
         "FINANCE": _tool_finance, "REMEMBER": _tool_remember,
+        "STATUS": _tool_status, "SCOPE": _tool_scope,
+        "IMPROVE": _tool_improve, "IDLE": _tool_idle,
     }
 
     for _ in range(max_steps):
@@ -174,7 +232,7 @@ def run_agentic(task, max_steps=8, cwd=None):
         line = raw.strip()
 
         done_m = re.search(r"(?mi)^\s*DONE:\s*(.+)$", line, re.S)
-        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|RUN|PROPOSE):\s*(.+)$", line)
+        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|STATUS|SCOPE|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line)
 
         # DONE قبل أي أداة → انتهى
         if done_m and (not verb_m or done_m.start() < verb_m.start()):

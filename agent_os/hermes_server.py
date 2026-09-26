@@ -104,6 +104,17 @@ def create_run(input_text):
         conversation.record_turn(input_text.split("\n", 1)[0].strip()[:300], reply, intent="agent")
     except Exception:
         pass
+    # التطوّر المزدوج: Hermes يراجع ويصحّح ويحوّل الدرس لذاكرة دائمة (خلفية، غير حاجب).
+    if os.getenv("HERMES_MENTOR") == "1":
+        import threading
+
+        def _mentor_bg():
+            try:
+                from agent_os.evolution import hermes_mentor
+                hermes_mentor.mentor(input_text.split("\n", 1)[0].strip()[:200], reply, "agent")
+            except Exception:
+                pass
+        threading.Thread(target=_mentor_bg, daemon=True).start()
     _RUNS[run_id] = {
         "run_id": run_id, "status": "completed", "input": input_text,
         "output": reply, "kind": "agent", "steps": [{"action": s["cmd"][:40], "done": s["ok"]} for s in steps],

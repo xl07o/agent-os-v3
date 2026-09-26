@@ -42,3 +42,17 @@ def test_memory_context_builds_string():
     A._tool_remember("build an e-commerce store")
     ctx = A._memory_context("store")
     assert isinstance(ctx, str)
+
+
+def test_new_tools_present_and_safe():
+    assert "brain=" in A._tool_status()
+    assert "OUT OF SCOPE" in A._tool_scope("evil.org | example.com")
+    assert "IN SCOPE" in A._tool_scope("api.example.com | example.com")
+    assert "background" in A._tool_improve()
+    assert "background" in A._tool_idle()
+
+def test_all_capability_verbs_registered():
+    import inspect
+    src = inspect.getsource(A.run_agentic)
+    for verb in ["RECALL", "LEARN", "FINANCE", "REMEMBER", "STATUS", "SCOPE", "IMPROVE", "IDLE", "RUN", "PROPOSE"]:
+        assert verb in src, verb
