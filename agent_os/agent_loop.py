@@ -63,6 +63,21 @@ def exec_enabled():
     return os.getenv("JARVIS_EXEC", "1") != "0"
 
 
+def _brain_with_retry(sysmsg, prompt, tries=3):
+    """يستدعي العقل مع إعادة محاولة قصيرة — يتجاوز فشل rate-limit اللحظي بدل
+    الاستسلام بـ«لا عقل»."""
+    import time as _t
+    raw = engine = None
+    for i in range(tries):
+        raw, engine = C.call_brain(sysmsg, prompt, mode="fastest")
+        if raw and engine not in (None, "", "none") and not raw.strip().startswith("("):
+            return raw, engine
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            break  # لا مهلات أثناء الاختبار
+        _t.sleep(1.5 * (i + 1))  # مهلة قصيرة لتعافي الحد ثم إعادة المحاولة
+    return raw, engine
+
+
 def _is_safe_readonly(cmd):
     cmd = cmd.strip()
     if _CHAIN.search(cmd):
@@ -318,10 +333,11 @@ def run_agentic(task, max_steps=8, cwd=None):
 
     for _ in range(max_steps):
         prompt = "\n".join(transcript) + "\nJARVIS:"
-        raw, engine = C.call_brain(_SYS, prompt, mode="fastest")
+        raw, engine = _brain_with_retry(_SYS, prompt)
         last_engine = engine
         if not raw or engine in (None, "", "none") or raw.strip().startswith("("):
-            return {"reply": "I can't reach a thinking brain right now.",
+            return {"reply": "My brain is briefly rate-limited. Give me a moment and try again, "
+                             "or add another free key (OpenRouter/NVIDIA) to .env for backup.",
                     "steps": steps, "pending_approvals": pending, "engine": engine}
         line = raw.strip()
 

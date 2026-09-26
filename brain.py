@@ -557,21 +557,26 @@ def _call_openai(msgs):
 # ===== واجهة الاستخدام =====
 
 def available_engines():
-    """يرجع المزودين المتاحين فعلياً (ويستثني المدفوع الذي تجاوز سقف التكلفة
-    والمزوّد الذي أعطى أخطاء متتابعة في تبريد مؤقت)."""
-    av = []
-    for e in ENGINES_ALL:
-        try:
-            if _provider_quarantined(e["id"]):
+    """يرجع المزودين المتاحين. لو كان كل المزوّدين المُهيّئين معزولين مؤقتاً،
+    نُرجعهم رغم العزل كآخر ملاذ — حتى لا يقول «لا عقل» لمجرد تبريد لحظي
+    (كان Groq يُعزل 30ث بعد rate limit فيبدو النظام بلا عقل)."""
+    def _scan(ignore_cooldown):
+        out = []
+        for e in ENGINES_ALL:
+            try:
+                if not ignore_cooldown and _provider_quarantined(e["id"]):
+                    continue
+                if not e["check"]():
+                    continue
+                if _over_budget(e):
+                    continue
+                out.append(e)
+            except Exception:
                 continue
-            if not e["check"]():
-                continue
-            if _over_budget(e):
-                continue
-            av.append(e)
-        except Exception:
-            continue
-    return av
+        return out
+
+    av = _scan(False)
+    return av if av else _scan(True)
 
 
 def best_available():
