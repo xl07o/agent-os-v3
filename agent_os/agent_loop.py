@@ -43,6 +43,7 @@ _SYS = (
     "REMEMBER: <fact>  (store a fact)\n"
     "WRITE: <path> | <file content>  (create/write a file in the home folder — really does it)\n"
     "MKDIR: <path>  (create a folder in the home folder)\n"
+    "OPEN: <url or site>  (open a website in the owner's browser, e.g. OPEN: youtube)\n"
     "STATUS: -  (system readiness: brain, memory, voice)\n"
     "SCOPE: <host> | <scope1,scope2>  (security: is host in the authorized scope?)\n"
     "IMPROVE: -  (start a background self-improvement cycle)\n"
@@ -167,6 +168,47 @@ def _tool_mkdir(path):
         return f"[mkdir error: {str(e)[:120]}]"
 
 
+def _normalize_url(target):
+    """يحوّل «youtube» أو «youtube.com» أو رابطاً كاملاً إلى رابط http(s) صالح."""
+    t = target.strip().strip("`").strip().strip("<>").strip()
+    if not t:
+        return None
+    if t.startswith(("http://", "https://")):
+        url = t
+    elif "." in t.split()[0]:
+        url = "https://" + t
+    else:
+        # كلمة مفردة (youtube/google) → موقعها المعروف
+        url = f"https://www.{t.split()[0].lower()}.com"
+    # تحقّق صارم: http(s) ومضيف معقول فقط (لا حقن)
+    import urllib.parse as _up
+    p = _up.urlparse(url)
+    if p.scheme in ("http", "https") and re.match(r"^[A-Za-z0-9.\-]+(\:\d+)?$", p.netloc or ""):
+        return url
+    return None
+
+
+def _tool_open(target):
+    """يفتح موقعاً في متصفح المستخدم (ويندوز عبر WSL، أو Linux/Mac) — فتح رابط فقط، آمن."""
+    url = _normalize_url(target)
+    if not url:
+        return f"[refused: '{target}' is not a valid http(s) URL]"
+    import shutil
+    # ويندوز عبر WSL أولاً، ثم مشغّلات Linux/Mac — نمرّر الرابط كوسيط واحد (بلا shell).
+    openers = [["cmd.exe", "/c", "start", "", url], ["wslview", url],
+               ["xdg-open", url], ["open", url]]
+    for cmd in openers:
+        exe = shutil.which(cmd[0]) or (cmd[0] if os.path.exists("/mnt/c") and cmd[0] == "cmd.exe" else None)
+        if not exe:
+            continue
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return f"opened {url} in your browser"
+        except Exception:
+            continue
+    return f"[couldn't reach a browser launcher; URL is: {url}]"
+
+
 def _tool_remember(fact):
     try:
         from agent_os.memory import provenance, contextual_memory as cm
@@ -269,7 +311,7 @@ def run_agentic(task, max_steps=8, cwd=None):
     handlers = {
         "RECALL": _tool_recall, "LEARN": _tool_learn,
         "FINANCE": _tool_finance, "REMEMBER": _tool_remember,
-        "WRITE": _tool_write, "MKDIR": _tool_mkdir,
+        "WRITE": _tool_write, "MKDIR": _tool_mkdir, "OPEN": _tool_open,
         "STATUS": _tool_status, "SCOPE": _tool_scope,
         "IMPROVE": _tool_improve, "IDLE": _tool_idle,
     }
@@ -284,7 +326,7 @@ def run_agentic(task, max_steps=8, cwd=None):
         line = raw.strip()
 
         done_m = re.search(r"(?mi)^\s*DONE:\s*(.+)$", line, re.S)
-        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|WRITE|MKDIR|STATUS|SCOPE|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line, re.S)
+        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|WRITE|MKDIR|OPEN|STATUS|SCOPE|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line, re.S)
 
         # DONE قبل أي أداة → انتهى
         if done_m and (not verb_m or done_m.start() < verb_m.start()):

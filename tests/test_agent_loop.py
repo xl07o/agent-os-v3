@@ -73,3 +73,17 @@ def test_write_mkdir_verbs_registered():
     import inspect
     src = inspect.getsource(A.run_agentic)
     assert "WRITE" in src and "MKDIR" in src
+
+
+def test_open_url_normalization_and_safety():
+    assert A._normalize_url("youtube") == "https://www.youtube.com"
+    assert A._normalize_url("github.com") == "https://github.com"
+    assert A._normalize_url("https://x.com/a?b=c") == "https://x.com/a?b=c"
+    # رفض غير الآمن
+    assert A._normalize_url("javascript:alert(1)") is None
+    assert A._normalize_url("file:///etc/passwd") is None
+    assert A._normalize_url("") is None
+
+def test_open_verb_registered():
+    import inspect
+    assert "OPEN" in inspect.getsource(A.run_agentic)
