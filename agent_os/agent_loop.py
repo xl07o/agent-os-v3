@@ -45,6 +45,7 @@ _SYS = (
     "MKDIR: <path>  (create a folder in the home folder)\n"
     "OPEN: <url or site>  (open a website in the owner's browser, e.g. OPEN: youtube)\n"
     "STATUS: -  (system readiness: brain, memory, voice)\n"
+    "TEST: <file or 'all'>  (run the project tests and report pass/fail)\n"
     "SCOPE: <host> | <scope1,scope2>  (security: is host in the authorized scope?)\n"
     "IMPROVE: -  (start a background self-improvement cycle)\n"
     "IDLE: -  (start a background self-learning cycle)\n"
@@ -78,15 +79,45 @@ def _brain_with_retry(sysmsg, prompt, tries=3):
     return raw, engine
 
 
+def _allowed_cmds():
+    """القائمة الآمنة + أي أوامر يضيفها المالك بنفسه عبر JARVIS_EXTRA_CMDS
+    (قراره على جهازه). مثال: JARVIS_EXTRA_CMDS="git,mkdir,cp,mv,python3,pip,node,npm"."""
+    base = set(_SAFE_READONLY)
+    for c in re.split(r"[,\s]+", os.getenv("JARVIS_EXTRA_CMDS", "")):
+        c = c.strip()
+        if c:
+            base.add(c)
+    return base
+
+
 def _is_safe_readonly(cmd):
     cmd = cmd.strip()
-    if _CHAIN.search(cmd):
+    if _CHAIN.search(cmd):   # منع التسلسل/التهريب يبقى دائماً (; && | > ` $ sudo rm)
         return False
     try:
         tokens = shlex.split(cmd)
     except ValueError:
         return False
-    return bool(tokens) and tokens[0] in _SAFE_READONLY
+    return bool(tokens) and tokens[0] in _allowed_cmds()
+
+
+def _tool_test(target=""):
+    """يشغّل فحوص المشروع عبر JARVIS ويعيد النتيجة (البند: تست لكل عملية)."""
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return "(test tool skipped under test)"
+    t = (target or "").strip()
+    path = "tests/" if t.lower() in ("all", "full", "") else t
+    try:
+        p = subprocess.run([sys.executable, "-m", "pytest", path, "-q", "-p", "no:cacheprovider"],
+                           capture_output=True, text=True, timeout=180,
+                           cwd=C.BASE_DIR, encoding="utf-8", errors="replace")
+        lines = (p.stdout + p.stderr).strip().splitlines()
+        tail = [ln for ln in lines if "passed" in ln or "failed" in ln or "error" in ln.lower()]
+        return (tail[-1] if tail else (lines[-1] if lines else "(no output)"))
+    except subprocess.TimeoutExpired:
+        return "[tests timed out after 180s]"
+    except Exception as e:
+        return f"[test error: {str(e)[:120]}]"
 
 
 def _run_readonly(cmd, cwd=None, timeout=20):
@@ -327,7 +358,7 @@ def run_agentic(task, max_steps=8, cwd=None):
         "RECALL": _tool_recall, "LEARN": _tool_learn,
         "FINANCE": _tool_finance, "REMEMBER": _tool_remember,
         "WRITE": _tool_write, "MKDIR": _tool_mkdir, "OPEN": _tool_open,
-        "STATUS": _tool_status, "SCOPE": _tool_scope,
+        "STATUS": _tool_status, "SCOPE": _tool_scope, "TEST": _tool_test,
         "IMPROVE": _tool_improve, "IDLE": _tool_idle,
     }
 
@@ -342,7 +373,7 @@ def run_agentic(task, max_steps=8, cwd=None):
         line = raw.strip()
 
         done_m = re.search(r"(?mi)^\s*DONE:\s*(.+)$", line, re.S)
-        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|WRITE|MKDIR|OPEN|STATUS|SCOPE|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line, re.S)
+        verb_m = re.search(r"(?mi)^\s*(RECALL|LEARN|FINANCE|REMEMBER|WRITE|MKDIR|OPEN|STATUS|SCOPE|TEST|IMPROVE|IDLE|RUN|PROPOSE):\s*(.*)$", line, re.S)
 
         # DONE قبل أي أداة → انتهى
         if done_m and (not verb_m or done_m.start() < verb_m.start()):

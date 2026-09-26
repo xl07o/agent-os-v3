@@ -87,3 +87,16 @@ def test_open_url_normalization_and_safety():
 def test_open_verb_registered():
     import inspect
     assert "OPEN" in inspect.getsource(A.run_agentic)
+
+
+def test_extra_cmds_env_extends_allowlist(monkeypatch):
+    monkeypatch.setenv("JARVIS_EXTRA_CMDS", "git,mkdir,python3")
+    assert A._is_safe_readonly("git status") is True
+    assert A._is_safe_readonly("python3 x.py") is True
+    assert A._is_safe_readonly("npm install") is False          # not added
+    assert A._is_safe_readonly("git status; rm x") is False       # chaining still blocked
+
+def test_test_and_verbs_registered():
+    import inspect
+    src = inspect.getsource(A.run_agentic)
+    assert "TEST" in src
