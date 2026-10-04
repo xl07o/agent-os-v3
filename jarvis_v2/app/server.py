@@ -213,7 +213,9 @@ def _spawn_task(text):
 
 _HERMES_BIN = os.getenv("JARVIS_HERMES_BIN") or os.path.join(
     os.environ.get("LOCALAPPDATA", ""), "hermes", "bin", "hermes.exe")
-_HERMES_YOLO = os.getenv("JARVIS_HERMES_YOLO", "1") not in ("0", "false", "no")
+# الافتراضي معطَّل: تشغيل hermes بلا تأكيد لكل خطوة (--yolo) قرار يحتاج
+# تفعيلاً صريحاً من المستخدم عبر متغير بيئة، لا قيمة افتراضية خفية.
+_HERMES_YOLO = os.getenv("JARVIS_HERMES_YOLO", "0") in ("1", "true", "yes")
 
 
 def _hermes_info():

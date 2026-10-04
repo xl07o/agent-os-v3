@@ -112,7 +112,17 @@ def _compute_tf(text):
 
 
 def _similarity(text_a, text_b):
-    """تشابه بسيط (cosine similarity على TF vectors)."""
+    """تشابه: يستخدم embeddings دلالية حقيقية إن فعّلها المستخدم صراحة
+    وتوفرت مكتبتها (انظر memory_embeddings.py)، وإلا يرجع تلقائياً وبصمت
+    لمطابقة TF النصية البسيطة (cosine similarity على TF vectors) كافتراضي آمن."""
+    try:
+        import memory_embeddings
+        semantic = memory_embeddings.similarity(text_a, text_b)
+        if semantic is not None:
+            return semantic
+    except Exception:
+        pass
+
     tf_a = _compute_tf(text_a)
     tf_b = _compute_tf(text_b)
 
@@ -271,7 +281,18 @@ def stats():
         "avg_importance": round(avg_importance, 2),
         "avg_access": round(avg_access, 2),
         "unique_tags": len(set(t for i in bank["items"] for t in i.get("tags", []))),
+        # يعكس الطريقة الفعلية المستخدمة الآن فقط — صريح بعدم الادعاء بـ
+        # embeddings دلالية إن لم تكن مفعّلة ومثبّتة فعلاً (انظر memory_embeddings.py).
+        "retrieval_method": _retrieval_method(),
     }
+
+
+def _retrieval_method():
+    try:
+        import memory_embeddings
+        return "sentence_embeddings" if memory_embeddings.available() else "tf_keyword_match"
+    except Exception:
+        return "tf_keyword_match"
 
 
 def prune_old(days=30):

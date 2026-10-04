@@ -55,8 +55,35 @@ def _log(msg):
         pass
 
 
+def confirm_scope(domain):
+    """بوابة تأكيد النطاق الإلزامية: لا فحص فعلي لأي هدف بلا إذن صريح له
+    تحديداً. أهداف التدريب العامة المعروفة (SAFE_PRACTICE_TARGETS) مستثناة
+    لأنها مصمَّمة أصلاً للتدريب المفتوح المصرَّح به للجميع. تأكيد نطاق سابق
+    لهدف لا يُفعِّل فحص هدف آخر — كل هدف يحتاج تأكيده بنفسه."""
+    if domain in SAFE_PRACTICE_TARGETS:
+        return True
+    if os.environ.get("EMPIRE_SCOPE_CONFIRMED", "") == domain:
+        return True
+
+    print(f"\n⚠️  لم يُؤكَّد النطاق '{domain}'.")
+    print("الفحص لا يبدأ إلا بتأكيد صريح أنك تملك هذا الهدف أو مصرَّح لك باختباره رسمياً")
+    print("(مثل برنامج معتمد على HackerOne). هذا التأكيد مطلوب لكل هدف على حدة.")
+    try:
+        answer = input(f"هل تملك '{domain}' أو لديك تصريح رسمي باختباره؟ اكتب yes للمتابعة: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = ""
+
+    if answer not in ("yes", "y", "نعم"):
+        _log(f"🚫 تم إلغاء الفحص: لم يُؤكَّد النطاق لـ {domain}")
+        return False
+    return True
+
+
 def full_pipeline(domain, save_report=True):
     """الخط الكامل: استطلاع → فحص → تقرير."""
+    if not confirm_scope(domain):
+        return {"domain": domain, "status": "scope_not_confirmed"}
+
     _log(f"🚀 بدء تحليل {domain}")
 
     # 1. استطلاع
@@ -122,6 +149,8 @@ if __name__ == "__main__":
     elif args[0] == "scan" and len(args) > 1:
         domain = args[1]
         result = full_pipeline(domain)
+        if result.get("status") == "scope_not_confirmed":
+            sys.exit(1)
         print(f"\n✅ اكتمل!")
         print(f"🔎 ثغرات: {result['scan']['total']}")
         print(f"💰 مكافأة متوقعة: ${result['bounty_estimate']['min']:,} - ${result['bounty_estimate']['max']:,}")

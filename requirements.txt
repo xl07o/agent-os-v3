@@ -13,3 +13,9 @@ pygetwindow>=0.0.9
 
 # Testing
 pytest>=7.0.0
+
+# Voice interface (optional — heavy, not installed by default; see voice_interface.py)
+# faster-whisper>=1.0.0
+# openwakeword>=0.6.0
+# piper-tts>=1.2.0
+# sounddevice>=0.4.6
