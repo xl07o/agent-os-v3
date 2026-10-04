@@ -62,7 +62,20 @@ def create_request(what, why="", steps=None, resume_hint="", kind="other", risk=
     state["requests"].append(req)
     _save(state)
     C.log(f"🙋 طلب #{rid} [{req['risk']}] {what}")
+    _notify_pending(req)
     return req
+
+
+def _notify_pending(req):
+    """يبلّغ المستخدم خارج الجلسة بطلب موافقة جديد — عبر أول قناة مُعدَّة
+    فعلياً (notifier.py)؛ لا يفشل إنشاء الطلب أبداً إن لم تُعدَّ أي قناة
+    أو تعذّر الإرسال، فقط لا تنبيه خارجي."""
+    try:
+        import notifier
+        message = f"طلب موافقة جديد #{req['id']} [{req['risk']}]: {req['what']}"
+        notifier.notify(message, prefer="call" if req.get("risk") == "high" else None)
+    except Exception:
+        pass
 
 
 def _apply_immediately(req):
