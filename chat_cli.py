@@ -17,6 +17,7 @@ sys.path.insert(0, _HERE)
 import brain
 import memory_bank
 import priority_manager
+import specialists
 
 _LOG_DIR = os.path.join(_HERE, "logs")
 _LOG_FILE = os.path.join(_LOG_DIR, "chat_history.txt")
@@ -99,7 +100,7 @@ def _main_loop():
     print("=" * 54)
     print("   🌙 موظف الليل - محادثة مباشرة")
     print("   العقول:", ", ".join(e["id"] for e in engines) or "لا شيء")
-    print("   أوامر: //بناء <نوع> | //hermes <مهمة> | /سجل | exit | /تذكر <معلومة> | /أولويات")
+    print("   أوامر: //بناء <نوع> | //hermes <مهمة> | //خبير <مجال>::<سؤال> | /سجل | exit | /تذكر <معلومة> | /أولويات")
     print("=" * 54)
 
     # جلسة عقل واحدة متصلة عبر المحادثة كلها (نفس التاريخ — لا بداية جديدة كل رسالة)
@@ -139,6 +140,26 @@ def _main_loop():
             except Exception as e:
                 reply = f"تعذّر تشغيل hermes: {str(e)[:150]}"
             print("الموظف >", reply)
+            _log("bot", reply)
+            continue
+
+        if raw.startswith("//خبير") or raw.startswith("//specialist"):
+            prefix = "//خبير" if raw.startswith("//خبير") else "//specialist"
+            rest = raw[len(prefix):].strip()
+            if "::" not in rest:
+                reply = "الصيغة: //خبير <اسم أو مجال> :: <سؤالك> — مثال: //خبير frontend :: كيف أحسّن سرعة الموقع؟"
+                print("الموظف >", reply)
+                _log("bot", reply)
+                continue
+            who, _, question = rest.partition("::")
+            who, question = who.strip(), question.strip()
+            result = specialists.ask(who, question)
+            if result.get("ok"):
+                reply = f"[{result['specialist']}] {result['answer']}"
+            else:
+                sugg = "، ".join(result.get("suggestions", [])) or "لا يوجد اقتراح قريب"
+                reply = f"{result['error']}. أقرب خبراء متاحين: {sugg}"
+            print("الموظف >", reply[:1500])
             _log("bot", reply)
             continue
 
