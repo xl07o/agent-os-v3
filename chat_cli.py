@@ -99,7 +99,7 @@ def _main_loop():
     print("=" * 54)
     print("   🌙 موظف الليل - محادثة مباشرة")
     print("   العقول:", ", ".join(e["id"] for e in engines) or "لا شيء")
-    print("   أوامر: //بناء <نوع> | /سجل | exit | /تذكر <معلومة> | /أولويات")
+    print("   أوامر: //بناء <نوع> | //hermes <مهمة> | /سجل | exit | /تذكر <معلومة> | /أولويات")
     print("=" * 54)
 
     # جلسة عقل واحدة متصلة عبر المحادثة كلها (نفس التاريخ — لا بداية جديدة كل رسالة)
@@ -122,6 +122,25 @@ def _main_loop():
         if low in {"exit", "quit", "خروج", "قف", "وداعاً", "باي"}:
             print("وداعاً! 🌙")
             break
+
+        if raw.startswith("//hermes") or raw.startswith("//هيرمس"):
+            prefix = "//hermes" if raw.startswith("//hermes") else "//هيرمس"
+            sub_task = raw[len(prefix):].strip()
+            if not sub_task:
+                reply = "اكتب المهمة بعد //hermes — مثال: //hermes ابحث عن أفضل مكتبة ضغط صور"
+                print("الموظف >", reply)
+                _log("bot", reply)
+                continue
+            print("   (🤝 أحوّل هذه المهمة لـ hermes agent — سيسألك هو بنفسه قبل أي خطوة فعلية)")
+            try:
+                from jarvis_v2 import cli as hermes_cli
+                hermes_cli.main([sub_task])
+                reply = "انتهت جلسة hermes لهذه المهمة."
+            except Exception as e:
+                reply = f"تعذّر تشغيل hermes: {str(e)[:150]}"
+            print("الموظف >", reply)
+            _log("bot", reply)
+            continue
 
         if raw.startswith("//بناء"):
             req = raw[len("//بناء"):].strip()

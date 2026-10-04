@@ -149,21 +149,38 @@ class SelfEvolver:
                     })
         return sorted(weak, key=lambda x: x["fail_rate"], reverse=True)
 
+    def _external_context(self, weak_pattern: dict) -> str:
+        """بحث اختياري وأفضل-جهد عن سياق عام (مثلاً أمثلة GitHub علنية) حول
+        نمط الضعف — لا يفشل أبداً، ولا يُعتبر مصدراً موثوقاً، فقط إلهام إضافي
+        يُمرَّر للنموذج ضمن الاقتراح الذي سيمر على الـsandbox والموافقة لاحقاً."""
+        try:
+            import webtools
+            q = f"{weak_pattern['task_type']} {weak_pattern['method']} python best practice github"
+            res = webtools.search(q, save=False, num=3)
+            titles = [r.get("title", "") for r in res.get("results", []) if isinstance(r, dict) and r.get("title")]
+            return "؛ ".join(titles[:3])
+        except Exception:
+            return ""
+
     def propose_improvement(self, weak_pattern: dict) -> dict:
-        """يقترح تحسيناً لنمط ضعيف."""
+        """يقترح تحسيناً لنمط ضعيف، مستعيناً اختيارياً بسياق بحث عام
+        (أفضل-جهد، قد لا يرجع شيء) قبل سؤال النموذج."""
         try:
             import brain
             b = brain.Brain("أنت مهندس تحسين. اقترح تحسيناً محدداً وقابلاً للتنفيذ.")
+            context = self._external_context(weak_pattern)
             prompt = (
                 f"النمط الضعيف: '{weak_pattern['task_type']}' بطريقة '{weak_pattern['method']}' "
                 f"يفشل {int(weak_pattern['fail_rate']*100)}% من الوقت.\n"
-                f"اقترح تحسيناً محدداً مع كود بايثون بسيط يمكن اختباره."
+                + (f"سياق عام قد يفيد (من بحث عام، ليس مصدراً موثوقاً، تحقق بنفسك): {context}\n" if context else "")
+                + "اقترح تحسيناً محدداً مع كود بايثون بسيط يمكن اختباره."
             )
             response, engine = b.ask(prompt)
             return {
                 "pattern": weak_pattern,
                 "proposal": response[:800],
                 "engine": engine,
+                "external_context": context,
                 "status": "proposed",
                 "created_at": datetime.datetime.now().isoformat(),
             }
