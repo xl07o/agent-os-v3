@@ -192,16 +192,35 @@ class SelfEvolver:
         }
 
     def adopt_improvement(self, improvement: dict) -> bool:
-        """يعتمد التحسين إذا نجح الاختبار."""
+        """ينجح اختبار الـ sandbox لا يكفي للاعتماد: يُرسَل التحسين لبوابة
+        الموافقة البشرية (agent_os.approval_center) ولا يُعتمد فعلياً إلا
+        بعد موافقة صريحة — نفس البوابة التي يستخدمها self_improve_engine.py
+        للتعديلات الحرجة، بدل اعتماد مباشر بلا مراجعة."""
         if not improvement.get("test_passed"):
             return False
+        try:
+            from agent_os import approval_center
+        except Exception as e:
+            print(f"[Self-Evolving] ⚠️ تعذّر الوصول لمركز الموافقات: {str(e)[:100]} — لن يُعتمد التحسين بلا موافقة.")
+            return False
+
+        req = approval_center.create_request(
+            f"اعتماد تحسين ذاتي: {improvement.get('pattern', {}).get('task_type', '?')}",
+            f"اجتاز اختبار الـ sandbox. نتيجة الاختبار: {str(improvement.get('test_result', ''))[:200]}",
+            ["راجع الكود المقترح أدناه", "وافق للاعتماد أو ارفض للتجاهل"],
+            kind="code_change", risk="high",
+            payload={"proposal": improvement.get("proposal", "")[:4000],
+                     "pattern": improvement.get("pattern", {})},
+        )
+        improvement["adopted"] = False
+        improvement["approval_request_id"] = req["id"]
+        improvement["status"] = "pending_approval"
         db = _load_db()
-        improvement["adopted"] = True
-        improvement["adopted_at"] = datetime.datetime.now().isoformat()
-        db["adopted"].append(improvement)
         db["improvements"].append(improvement)
         _save_db(db)
-        return True
+        print(f"[Self-Evolving] ⏳ تحسين بانتظار موافقتك: طلب #{req['id']}")
+        return False
+
 
     def run_evolution_cycle(self) -> dict:
         """دورة تطور كاملة: اكتشف → اقترح → اختبر → اعتمد."""
@@ -217,8 +236,8 @@ class SelfEvolver:
             improvement = self.propose_improvement(pattern)
             tested = self.test_improvement(improvement)
             if tested.get("test_passed"):
-                adopted = self.adopt_improvement(tested)
-                print(f"[Self-Evolving] ✅ تم اعتماد التحسين" if adopted else "[Self-Evolving] ❌ لم يُعتمد")
+                self.adopt_improvement(tested)
+                print("[Self-Evolving] ⏳ تحسين بانتظار موافقتك (راجع agent_os/approval_center.py list)")
             else:
                 print(f"[Self-Evolving] ❌ فشل الاختبار: {tested.get('test_result', '')[:100]}")
             results.append(tested)
@@ -237,6 +256,36 @@ class SelfEvolver:
             for w in weak[:3]:
                 lines.append(f"- {w['task_type']}: {int(w['fail_rate']*100)}% فشل")
         return "\n".join(lines)
+
+
+def finalize_pending_adoptions() -> dict:
+    """يُستدعى دورياً: يتحقق من طلبات التحسين المعلّقة في approval_center
+    ويعتمد في قاعدة بيانات self_evolving ما وافق عليه المستخدم فعلياً فقط."""
+    try:
+        from agent_os import approval_center
+    except Exception as e:
+        return {"status": "error", "reason": str(e)[:100]}
+
+    db = _load_db()
+    finalized = []
+    for imp in db["improvements"]:
+        rid = imp.get("approval_request_id")
+        if not rid or imp.get("adopted"):
+            continue
+        resolved = approval_center.check_resolution(rid)
+        if not resolved:
+            continue
+        if resolved.get("status") == "done":
+            imp["adopted"] = True
+            imp["adopted_at"] = datetime.datetime.now().isoformat()
+            db["adopted"].append(imp)
+            finalized.append({"id": rid, "status": "adopted"})
+        else:
+            imp["status"] = "rejected"
+            finalized.append({"id": rid, "status": "rejected"})
+    if finalized:
+        _save_db(db)
+    return {"status": "done", "finalized": finalized}
 
 
 # Singleton
