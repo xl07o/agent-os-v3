@@ -16,6 +16,7 @@ sys.path.insert(0, _HERE)
 
 import brain
 import memory_bank
+import priority_manager
 
 _LOG_DIR = os.path.join(_HERE, "logs")
 _LOG_FILE = os.path.join(_LOG_DIR, "chat_history.txt")
@@ -98,7 +99,7 @@ def _main_loop():
     print("=" * 54)
     print("   🌙 موظف الليل - محادثة مباشرة")
     print("   العقول:", ", ".join(e["id"] for e in engines) or "لا شيء")
-    print("   أوامر: //بناء <نوع> | /سجل | exit | /تذكر <معلومة>")
+    print("   أوامر: //بناء <نوع> | /سجل | exit | /تذكر <معلومة> | /أولويات")
     print("=" * 54)
 
     # جلسة عقل واحدة متصلة عبر المحادثة كلها (نفس التاريخ — لا بداية جديدة كل رسالة)
@@ -175,6 +176,18 @@ def _main_loop():
             reply = f"الذاكرة: {stats['total_items']} معلومة، {stats['unique_tags']} وسوم"
             print("الموظف >", reply)
             continue
+
+        if low.strip() in {"/أولويات", "/اولويات"}:
+            print("الموظف >", priority_manager.priority_brief())
+            continue
+
+        # استخراج أولوية محتملة من الرسالة (لا تنفيذ، فقط اقتراح يُراجَع لاحقاً بـ /أولويات)
+        try:
+            added_task = priority_manager.extract_from_message(raw)
+            if added_task:
+                print(f"   (📌 أضفتها لقائمة الأولويات — راجعها بـ /أولويات)")
+        except Exception:
+            pass
 
         # رد مباشر
         reply = _ask(raw, brain_session)

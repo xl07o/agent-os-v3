@@ -271,6 +271,9 @@ def stats():
         "avg_importance": round(avg_importance, 2),
         "avg_access": round(avg_access, 2),
         "unique_tags": len(set(t for i in bank["items"] for t in i.get("tags", []))),
+        # صريح بعدم استخدام embeddings دلالية حقيقية — البحث هنا مطابقة
+        # نصية بأوزان TF، وليس تمثيلاً دلالياً عصبياً (انظر _compute_tf/_similarity).
+        "retrieval_method": "tf_keyword_match",
     }
 
 
