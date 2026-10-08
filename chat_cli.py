@@ -56,6 +56,47 @@ def _build(text):
         return "خطأ أثناء البناء: " + str(e)
 
 
+def _trading(sub):
+    """وكيل التداول ذاتي التحسين — //تداول شغل [N] | //تداول حالة | //تداول حي تفعيل | //تداول حي ايقاف"""
+    try:
+        from trading import strategy_agent, kill_switch, alpaca_client
+    except Exception as e:
+        return f"تعذّر تحميل trading/: {e}"
+
+    parts = sub.split()
+    cmd = parts[0] if parts else "حالة"
+
+    if cmd in ("شغل", "run"):
+        n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 5
+        result = strategy_agent.run_self_improvement_cycle(iterations=n)
+        if "error" in result:
+            return result["error"]
+        best = result["best"]
+        label = strategy_agent.FACTOR_LABELS.get(best["spec"]["factor"], best["spec"]["factor"])
+        demo_note = " (بيانات تجريبية — لا اتصال ببيانات حقيقية)" if result.get("used_demo_data") else ""
+        return (f"شغّلت {n} تكرار{demo_note}. أفضل عامل حتى الآن: {label} — "
+                f"شارپ صادق {best['honest_sharpe']} (مو {best['biased_sharpe']}، ذاك متحيّز).")
+
+    if cmd in ("حالة", "status"):
+        snap = strategy_agent.pipeline_snapshot()
+        if not snap["has_run"]:
+            return "ما شغّلت دورة تحسين بعد — جرب //تداول شغل"
+        ks = "🛑 مفعّل" if snap["kill_switch_tripped"] else "✅ سليم"
+        return (f"العامل الحالي: {snap['current_factor_label']} — شارپ صادق {snap['honest_sharpe']} "
+                f"(متحيّز {snap['biased_sharpe']}) — {snap['iterations_total']} تكرار إجمالي — "
+                f"قاطع الأمان: {ks} — وضع Alpaca: {alpaca_client.mode()}")
+
+    if cmd == "حي" and len(parts) > 1 and parts[1] in ("تفعيل", "enable"):
+        res = alpaca_client.set_live_mode(True, requested_by="chat_cli")
+        return f"طلب تفعيل الوضع الحي أُرسل لبوابة الموافقة — راجعه عبر agent_os/approval_center.py list (#{res.get('approval_request_id', '؟')})"
+
+    if cmd == "حي" and len(parts) > 1 and parts[1] in ("ايقاف", "إيقاف", "disable"):
+        alpaca_client.set_live_mode(False)
+        return "رجّعت الوضع إلى paper فوراً."
+
+    return "الصيغة: //تداول شغل [عدد التكرارات] | //تداول حالة | //تداول حي تفعيل | //تداول حي ايقاف"
+
+
 def _ask(raw, b):
     """رد عبر العقل المحسّن مع استرجاع الذاكرة — جلسة واحد متصلة عبر b."""
     try:
@@ -100,7 +141,7 @@ def _main_loop():
     print("=" * 54)
     print("   🌙 موظف الليل - محادثة مباشرة")
     print("   العقول:", ", ".join(e["id"] for e in engines) or "لا شيء")
-    print("   أوامر: //بناء <نوع> | //hermes <مهمة> | //خبير <مجال>::<سؤال> | /سجل | exit | /تذكر <معلومة> | /أولويات")
+    print("   أوامر: //بناء <نوع> | //hermes <مهمة> | //خبير <مجال>::<سؤال> | //تداول شغل|حالة | /سجل | exit | /تذكر <معلومة> | /أولويات")
     print("=" * 54)
 
     # جلسة عقل واحدة متصلة عبر المحادثة كلها (نفس التاريخ — لا بداية جديدة كل رسالة)
@@ -166,6 +207,14 @@ def _main_loop():
         if raw.startswith("//بناء"):
             req = raw[len("//بناء"):].strip()
             reply = _build(req) if req else "اكتب نوع: موقع / بايثون / روبلوكس"
+            print("الموظف >", reply)
+            _log("bot", reply)
+            continue
+
+        if raw.startswith("//تداول") or raw.startswith("//trading"):
+            prefix = "//تداول" if raw.startswith("//تداول") else "//trading"
+            sub = raw[len(prefix):].strip()
+            reply = _trading(sub)
             print("الموظف >", reply)
             _log("bot", reply)
             continue

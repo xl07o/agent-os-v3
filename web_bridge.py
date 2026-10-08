@@ -14,9 +14,10 @@ web_bridge.py - جسر قراءة محلي بين وكيلك الحقيقي وم
   ثم شغّل موقع agency-site بجنبه (npm run dev) — يقرأ منه تلقائياً.
 
 نقاط النهاية:
-  GET /api/specialists   قائمة الخبراء (id, name, description, emoji)
-  GET /api/approvals     طلبات الموافقة المعلّقة فقط (id, what, why, risk, created)
-  GET /api/stats         أرقام مجمّعة حقيقية للموقع
+  GET /api/specialists      قائمة الخبراء (id, name, description, emoji)
+  GET /api/approvals        طلبات الموافقة المعلّقة فقط (id, what, why, risk, created)
+  GET /api/stats            أرقام مجمّعة حقيقية للموقع
+  GET /api/trading/pipeline لقطة حالة وكيل التداول ذاتي التحسين (trading/)
 """
 
 import json
@@ -91,10 +92,20 @@ def _stats_payload():
     }
 
 
+def _trading_pipeline_payload():
+    from trading import strategy_agent, kill_switch, alpaca_client
+    snap = strategy_agent.pipeline_snapshot()
+    snap["kill_switch"] = kill_switch.status()
+    snap["alpaca_mode"] = alpaca_client.mode()
+    snap["alpaca_configured"] = alpaca_client.is_configured()
+    return snap
+
+
 ROUTES = {
     "/api/specialists": _specialists_payload,
     "/api/approvals": _approvals_payload,
     "/api/stats": _stats_payload,
+    "/api/trading/pipeline": _trading_pipeline_payload,
 }
 
 
