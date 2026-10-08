@@ -32,7 +32,13 @@ PORT = 8787
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-_LOCALHOST_ORIGIN = re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")
+# أصول محلية مسموحة فقط: متصفح عادي (http/https://localhost|127.0.0.1) أو
+# نافذة تطبيق Live Agency لسطح المكتب (src-tauri/) — الأصل tauri://localhost
+# (لينكس/macOS) أو https://tauri.localhost (ويندوز) لا يقدر أي موقع عادي
+# ينتحله؛ المتصفح نفسه يضبط ترويسة Origin ولا تستطيع صفحة ويب تزويرها.
+_LOCALHOST_ORIGIN = re.compile(
+    r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|tauri://localhost|https://tauri\.localhost)$"
+)
 
 
 def _specialists_payload():
