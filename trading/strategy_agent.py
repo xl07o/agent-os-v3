@@ -244,6 +244,7 @@ def pipeline_snapshot():
         "sample_picks": sample_table,
         "note": last.get("note", "") if last else "",
         "kill_switch_tripped": kill_switch.is_tripped(),
+        "honest_cumulative_curve": last.get("honest_cumulative_curve", []) if last else [],
     }
 
 
