@@ -458,7 +458,7 @@ def _call_mistral(msgs):
 
 def _call_anthropic(msgs):
     key = os.getenv("ANTHROPIC_API_KEY")
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     sys_prompt = None
     msgs_h = []
     for m in msgs:
