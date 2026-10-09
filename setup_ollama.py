@@ -18,6 +18,12 @@ import sys
 import time
 import urllib.request
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 ENV_EXAMPLE_PATH = os.path.join(BASE_DIR, ".env.example")
