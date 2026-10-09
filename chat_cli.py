@@ -37,11 +37,44 @@ def _log(role, text):
         pass
 
 
+def _build_dashboard(text):
+    """يبني شاشة/لوحة مخصّصة من وصف حر — «سوِّ لي شاشة فيها تداول يسار ودخل يمين
+    ودراسات» يترجم لأقسام حقيقية عبر العقل (مع افتراضي آمن لو تعذّر)."""
+    import builders
+    sections = None
+    try:
+        import json as _json
+        classifier = brain.Brain(
+            "استخرج من طلب المستخدم أقسام شاشة/لوحة يريد بناءها. ردّ بصيغة JSON فقط "
+            "بلا أي شرح أو نص إضافي، بالشكل التالي بالضبط:\n"
+            '[{"title": "اسم القسم", "items": ["سطر محتوى 1", "سطر محتوى 2"]}]\n'
+            "كل قسم 2-4 عناصر نصية قصيرة واقعية (مو فارغة، مو placeholder عام)."
+        )
+        out, engine = classifier.ask(text, mode="smart")
+        if engine not in (None, "none"):
+            cleaned = out.strip().strip("`")
+            if cleaned[:4].lower() == "json":
+                cleaned = cleaned[4:].strip()
+            parsed = _json.loads(cleaned)
+            if isinstance(parsed, list) and parsed:
+                sections = parsed
+    except Exception:
+        sections = None
+
+    if not sections:
+        sections = [{"title": "القسم الرئيسي", "items": ["وصّف لي الأقسام اللي تبيها بالتفصيل أكثر"]}]
+
+    paths = builders.make_dashboard_project("شاشتي", sections)
+    return "بنيتُ لك الشاشة ✅: " + paths.get("dashboard", "")
+
+
 def _build(text):
     """بناء مشروع فوري."""
     import builders
     tl = text.lower()
     try:
+        if any(k in tl for k in ("لوحة", "شاشة", "dashboard", "dash")):
+            return _build_dashboard(text)
         if "roblox" in tl or "لوا" in tl or "لعبة" in tl or "game" in tl:
             paths = builders.make_roblox_place("MyPlace")
             return "بنيتُ لك خريطة Roblox جاهزة ✅: " + paths.get("server_script", "")
@@ -51,7 +84,7 @@ def _build(text):
         if "موقع" in tl or "هبوط" in tl or "landing" in tl or "ويب" in tl or "web" in tl:
             paths = builders.make_web_project("MyLanding")
             return "بنيتُ لك موقع هبوط كامل ✅: " + paths.get("site", "")
-        return "اختر نوع: //بناء موقع | //بناء بايثون | //بناء روبلوكس"
+        return "اختر نوع: //بناء موقع | //بناء بايثون | //بناء روبلوكس | //بناء لوحة <وصف>"
     except Exception as e:
         return "خطأ أثناء البناء: " + str(e)
 
