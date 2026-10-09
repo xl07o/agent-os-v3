@@ -162,6 +162,11 @@ def remember(key, content, importance=1.0, tags=None):
             if tags:
                 item["tags"] = list(set(item.get("tags", []) + tags))
             _save_bank(bank)
+            try:
+                import obsidian_vault
+                obsidian_vault.mirror_memory_item(key, content, tags=item["tags"], importance=item["importance"])
+            except Exception:
+                pass
             return {"status": "updated", "key": key}
 
     # إضافة جديدة
@@ -184,6 +189,11 @@ def remember(key, content, importance=1.0, tags=None):
         bank["items"] = bank["items"][-MAX_MEMORY_ITEMS:]
 
     _save_bank(bank)
+    try:
+        import obsidian_vault
+        obsidian_vault.mirror_memory_item(key, content, tags=tags, importance=importance)
+    except Exception:
+        pass
     return {"status": "stored", "id": item["id"], "key": key}
 
 
