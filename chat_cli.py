@@ -97,6 +97,34 @@ def _trading(sub):
     return "الصيغة: //تداول شغل [عدد التكرارات] | //تداول حالة | //تداول حي تفعيل | //تداول حي ايقاف"
 
 
+def _run_hermes(sub_task):
+    """يحوّل مهمة لـ hermes agent (jarvis_v2) — المسار المشترك بين //hermes والتحويل التلقائي."""
+    try:
+        from jarvis_v2 import cli as hermes_cli
+        hermes_cli.main([sub_task])
+        return "انتهت جلسة hermes لهذه المهمة."
+    except Exception as e:
+        return f"تعذّر تشغيل hermes: {str(e)[:150]}"
+
+
+def _wants_action(raw):
+    """يسأل العقل تصنيفاً سريعاً ومنفصلاً (بلا تاريخ محادثة): هل هذه رسالة تنفيذ فعلي
+    (أمر/مهمة: بناء، بحث عميق، أتمتة) أم سؤال/دردشة عامة؟ أي غموض أو فشل → False
+    (نفس السلوك الحالي: دردشة)، فلا يغيّر هذا شيئاً عند غياب العقل."""
+    try:
+        classifier = brain.Brain(
+            "صنّف رسالة المستخدم التالية بكلمة واحدة فقط بلا أي شرح:\n"
+            "ACTION — إن كانت طلب تنفيذ مهمة فعلية (ابنِ/نفّذ/أتمتة/بحث عميق وتنفيذ).\n"
+            "CHAT — إن كانت سؤالاً عاماً أو دردشة أو طلب معلومة بسيطة."
+        )
+        out, engine = classifier.ask(raw, mode="fastest")
+        if engine in (None, "none"):
+            return False
+        return out.strip().upper().startswith("ACTION")
+    except Exception:
+        return False
+
+
 def _ask(raw, b):
     """رد عبر العقل المحسّن مع استرجاع الذاكرة — جلسة واحد متصلة عبر b."""
     try:
@@ -174,12 +202,7 @@ def _main_loop():
                 _log("bot", reply)
                 continue
             print("   (🤝 أحوّل هذه المهمة لـ hermes agent — سيسألك هو بنفسه قبل أي خطوة فعلية)")
-            try:
-                from jarvis_v2 import cli as hermes_cli
-                hermes_cli.main([sub_task])
-                reply = "انتهت جلسة hermes لهذه المهمة."
-            except Exception as e:
-                reply = f"تعذّر تشغيل hermes: {str(e)[:150]}"
+            reply = _run_hermes(sub_task)
             print("الموظف >", reply)
             _log("bot", reply)
             continue
@@ -277,6 +300,18 @@ def _main_loop():
                 print(f"   (📌 أضفتها لقائمة الأولويات — راجعها بـ /أولويات)")
         except Exception:
             pass
+
+        # رسالة طبيعية بلا // — نكتشف إن كانت طلب تنفيذ فعلي، ونعرضها كاقتراح
+        # يحتاج تأكيدك (نفس قاعدة النظام: لا تنفيذ فعلي بلا إذن)، بديل أسهل من
+        # حفظ //hermes، لا بديل عن إذنك.
+        if _wants_action(raw):
+            confirm = input("   🤝 رسالتك تبدو مهمة تنفيذية — أشغّلها عبر hermes agent؟ (y/n) > ").strip().lower()
+            if confirm in {"y", "yes", "نعم", "ايه", "اي"}:
+                reply = _run_hermes(raw)
+                print("الموظف >", reply)
+                _log("bot", reply)
+                continue
+            # رفض أو أي رد آخر → نكمل برد محادثة عادي بالأسفل
 
         # رد مباشر
         reply = _ask(raw, brain_session)
