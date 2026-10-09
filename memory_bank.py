@@ -169,6 +169,24 @@ def remember(key, content, importance=1.0, tags=None):
                 pass
             return {"status": "updated", "key": key}
 
+    # دمج التكرار الدلالي: نفس المعنى بصياغة مختلفة لا يصير سطرين منفصلين،
+    # يرفع أهمية المحفوظة الموجودة بدل ما يضخّم الذاكرة بمحتوى مكرر
+    # (نفس مبدأ Mem0/Letta: استخرج → طابق الموجود → حدّث، لا تكدّس).
+    DEDUP_THRESHOLD = 0.88
+    for item in bank["items"]:
+        if _similarity(item["content"], content) >= DEDUP_THRESHOLD:
+            item["importance"] = min(1.0, max(item.get("importance", 0), importance) + 0.05)
+            item["updated_at"] = now
+            if tags:
+                item["tags"] = list(set(item.get("tags", []) + tags))
+            _save_bank(bank)
+            try:
+                import obsidian_vault
+                obsidian_vault.mirror_memory_item(item["key"], item["content"], tags=item["tags"], importance=item["importance"])
+            except Exception:
+                pass
+            return {"status": "merged_duplicate", "key": item["key"], "matched": key}
+
     # إضافة جديدة
     item = {
         "id": hashlib.md5(key.encode()).hexdigest()[:10],
