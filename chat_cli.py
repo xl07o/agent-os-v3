@@ -37,6 +37,27 @@ def _log(role, text):
         pass
 
 
+def _enrich_with_live_data(sections):
+    """يستبدل محتوى أقسام مالية/دخل بأرقام حقيقية من finance_intel لو توفرت —
+    يحوّل الشاشة من mockup بنص وهمي لمقياس حي فعلي. غير قاتل: أي فشل يبقي
+    محتوى القسم كما استخرجه العقل."""
+    for sec in sections:
+        title = str(sec.get("title", "")).lower()
+        if any(k in title for k in ("دخل", "مالية", "income", "ربح", "أرباح", "مال")):
+            try:
+                from agent_os import finance_intel
+                r = finance_intel.daily_report()
+                sec["items"] = [
+                    f"الدخل اليوم: ${r['income_today_usd']}",
+                    f"المصروف اليوم: ${r['spent_today_usd']}",
+                    f"المتبقي من السقف اليومي: ${r['budget_remaining_today']}",
+                    f"استدعاءات مجانية اليوم: {r['free_calls_today']} (وفّرت ~${r['free_savings_usd']})",
+                ]
+            except Exception:
+                pass
+    return sections
+
+
 def _build_dashboard(text):
     """يبني شاشة/لوحة مخصّصة من وصف حر — «سوِّ لي شاشة فيها تداول يسار ودخل يمين
     ودراسات» يترجم لأقسام حقيقية عبر العقل (مع افتراضي آمن لو تعذّر)."""
@@ -64,6 +85,7 @@ def _build_dashboard(text):
     if not sections:
         sections = [{"title": "القسم الرئيسي", "items": ["وصّف لي الأقسام اللي تبيها بالتفصيل أكثر"]}]
 
+    sections = _enrich_with_live_data(sections)
     paths = builders.make_dashboard_project("شاشتي", sections)
     return "بنيتُ لك الشاشة ✅: " + paths.get("dashboard", "")
 
