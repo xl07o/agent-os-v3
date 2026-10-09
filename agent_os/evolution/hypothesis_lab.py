@@ -28,18 +28,21 @@ from agent_os import _common as C
 LAB_FILE = os.path.join(C.AGENT_OS_DIR, "hypothesis_lab.json")
 
 
-def create(hypothesis, success_criteria, experiment_fn=None):
+def create(hypothesis, success_criteria, experiment_fn=None, domain=None):
     """ينشئ فرضية جديدة.
 
     hypothesis: وصف الفكرة.
     success_criteria: كيف نعرف إنها نجحت؟ (نص أو dict).
     experiment_fn: دالة تنفّذ التجربة في sandbox وتعيد {"success": bool, ...}.
+    domain: تصنيف اختياري (مثلاً "trading") — يُستخدم لاحقاً في gate()
+        لمنع أي تنفيذ حقيقي بمجال معيّن حتى يثبت نجاحاً متكرراً بالمختبر.
     """
     exp_id = f"HYP-{uuid.uuid4().hex[:8]}"
     record = {
         "id": exp_id,
         "hypothesis": str(hypothesis)[:500],
         "success_criteria": str(success_criteria)[:300],
+        "domain": str(domain)[:50] if domain else None,
         "status": "created",
         "created_at": C.now_iso(),
         "sandbox_result": None,
@@ -122,6 +125,36 @@ def stats():
         "promoted": sum(1 for e in exps if e["status"] == "promoted"),
         "rejected": sum(1 for e in exps if e["status"] in ("rejected", "failed", "error")),
     }
+
+
+def track_record(domain):
+    """سجل مجال معيّن: كم فرضية نجحت/رُقّيت/فشلت بهذا المجال تحديداً."""
+    lab = _load()
+    exps = [e for e in lab["experiments"].values() if e.get("domain") == domain]
+    return {
+        "domain": domain,
+        "total": len(exps),
+        "passed": sum(1 for e in exps if e["status"] in ("passed", "promoted")),
+        "promoted": sum(1 for e in exps if e["status"] == "promoted"),
+        "rejected": sum(1 for e in exps if e["status"] in ("rejected", "failed", "error")),
+    }
+
+
+def gate(domain, min_passed=20):
+    """بوابة التنفيذ الحقيقي: يرفض إلا بعد إثبات نجاح متكرر بالمختبر لنفس
+    المجال — تطبيق حرفي لقاعدة «لا يُطبَّق شيء على الحقيقي إلا بعد نجاح
+    في المختبر» (مو مجرد تعليق بالكود، فحص فعلي يستدعيه أي مسار تنفيذ حقيقي
+    قبل ما يسمح لنفسه يشتغل بمجال حساس مثل التداول).
+
+    يرجع (ok: bool, رسالة تشرح القرار).
+    """
+    tr = track_record(domain)
+    if tr["passed"] >= min_passed:
+        return True, f"مؤهّل: {tr['passed']}/{min_passed} تجربة ناجحة بمجال «{domain}»."
+    return False, (
+        f"غير مؤهّل بعد لمجال «{domain}»: {tr['passed']}/{min_passed} تجربة ناجحة بالمختبر فقط. "
+        "يكمل التعلّم والتجريب بالمختبر أول قبل أي تنفيذ حقيقي."
+    )
 
 
 def _load():
