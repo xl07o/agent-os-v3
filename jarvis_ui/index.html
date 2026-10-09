@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — موظف الليل v3</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --blue: #00d4ff;
+    --blue2: #0088cc;
+    --green: #00ff88;
+    --red: #ff4444;
+    --gold: #ffd700;
+    --bg: #050a14;
+    --panel: rgba(0,212,255,0.04);
+    --border: rgba(0,212,255,0.2);
+    --text: #c8e6f0;
+    --dim: #4a7a8a;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: 56px 1fr 56px;
+    grid-template-columns: 280px 1fr 280px;
+    grid-template-areas:
+      "header header header"
+      "left   center right"
+      "footer footer footer";
+  }
+
+  /* ===== أنيماشن ===== */
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  @keyframes rotate { to{transform:rotate(360deg)} }
+  @keyframes scanline {
+    0%{top:-5%} 100%{top:105%}
+  }
+  @keyframes glow {
+    0%,100%{box-shadow:0 0 8px var(--blue)} 50%{box-shadow:0 0 24px var(--blue),0 0 48px var(--blue2)}
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ===== HEADER ===== */
+  header {
+    grid-area: header;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,8,20,0.9);
+  }
+  .logo { font-size: 1.4rem; font-weight: 700; color: var(--blue); letter-spacing: 4px; text-transform: uppercase; }
+  .logo span { color: var(--text); font-weight: 300; }
+  #clock { font-size: 1rem; color: var(--blue); font-family: monospace; letter-spacing: 2px; }
+  .status-badge {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .8rem; color: var(--green);
+  }
+  .dot { width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite; }
+
+  /* ===== PANELS ===== */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeIn .4s ease;
+  }
+  .panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--blue), transparent);
+    animation: glow 3s ease-in-out infinite;
+  }
+  .panel-title {
+    font-size: .7rem; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--blue); margin-bottom: 12px; opacity: .8;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title::before {
+    content: ''; width: 3px; height: 12px; background: var(--blue); display: inline-block;
+  }
+
+  /* ===== LEFT SIDEBAR ===== */
+  .left {
+    grid-area: left;
+    padding: 16px 12px;
+    display: flex; flex-direction: column; gap: 12px;
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+  }
+
+  /* ===== RIGHT SIDEBAR ===== */
+  .right {
+    grid-area: right;
+    padding: 16px 12px;
+    display: flex; flex-direction: column; gap: 12px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+
+  /* ===== CENTER ===== */
+  .center {
+    grid-area: center;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative;
+    padding: 20px;
+    gap: 20px;
+  }
+
+  /* ===== RING ===== */
+  .ring-container {
+    position: relative; width: 200px; height: 200px;
+    flex-shrink: 0;
+  }
+  .ring-outer {
+    position: absolute; inset: 0;
+    border: 2px solid rgba(0,212,255,.3);
+    border-radius: 50%;
+    animation: rotate 20s linear infinite;
+  }
+  .ring-outer::before {
+    content:''; position:absolute; top:-4px; left:50%; width:8px; height:8px;
+    background:var(--blue); border-radius:50%;
+    box-shadow:0 0 12px var(--blue);
+    transform: translateX(-50%);
+  }
+  .ring-mid {
+    position: absolute; inset: 16px;
+    border: 1px solid rgba(0,212,255,.5);
+    border-radius: 50%;
+    animation: rotate 10s linear infinite reverse;
+  }
+  .ring-inner {
+    position: absolute; inset: 36px;
+    border: 2px solid var(--blue2);
+    border-radius: 50%;
+    border-right-color: transparent;
+    border-bottom-color: transparent;
+    animation: rotate 3s linear infinite;
+  }
+  .avatar {
+    position: absolute; inset: 52px;
+    background: radial-gradient(circle at 40% 35%, #1a4060, #050a14);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.4rem;
+    border: 1px solid var(--border);
+  }
+
+  /* ===== CHAT AREA ===== */
+  .chat-area {
+    width: 100%; max-width: 540px;
+    display: flex; flex-direction: column; gap: 8px;
+    flex: 1; overflow-y: auto; padding: 0 4px;
+    max-height: 220px;
+  }
+  .msg {
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: .85rem;
+    line-height: 1.5;
+    animation: fadeIn .3s ease;
+    max-width: 90%;
+  }
+  .msg.user {
+    background: rgba(0,212,255,.08);
+    border: 1px solid var(--border);
+    align-self: flex-end;
+    color: var(--blue);
+  }
+  .msg.bot {
+    background: rgba(0,255,136,.05);
+    border: 1px solid rgba(0,255,136,.15);
+    align-self: flex-start;
+    color: #b0e8d0;
+  }
+  .msg.system {
+    background: rgba(255,215,0,.05);
+    border: 1px solid rgba(255,215,0,.15);
+    color: var(--gold);
+    align-self: center;
+    font-size: .75rem;
+    letter-spacing: 1px;
+  }
+
+  /* ===== INPUT ===== */
+  .input-row {
+    display: flex; gap: 10px; width: 100%; max-width: 540px;
+  }
+  #cmd {
+    flex: 1;
+    background: rgba(0,20,40,.8);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    color: var(--blue);
+    font-size: .9rem;
+    outline: none;
+    transition: border-color .2s;
+    text-align: right;
+  }
+  #cmd:focus { border-color: var(--blue); box-shadow: 0 0 12px rgba(0,212,255,.2); }
+  #cmd::placeholder { color: var(--dim); }
+  #send-btn {
+    background: var(--blue2);
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    color: #fff;
+    cursor: pointer;
+    font-size: .85rem;
+    transition: background .2s;
+  }
+  #send-btn:hover { background: var(--blue); }
+
+  /* ===== FOOTER ===== */
+  footer {
+    grid-area: footer;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    border-top: 1px solid var(--border);
+    background: rgba(0,8,20,.9);
+    font-size: .72rem; color: var(--dim);
+  }
+  .footer-stat { display: flex; gap: 20px; }
+  .stat { display: flex; align-items: center; gap: 6px; }
+  .stat-val { color: var(--blue); font-family: monospace; }
+
+  /* ===== METRIC ROWS ===== */
+  .metric { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(0,212,255,.08); }
+  .metric:last-child { border-bottom: none; }
+  .metric-label { font-size: .78rem; color: var(--dim); }
+  .metric-val { font-size: .82rem; font-family: monospace; }
+  .up { color: var(--green); }
+  .down { color: var(--red); }
+  .neutral { color: var(--blue); }
+
+  /* ===== PROGRESS BAR ===== */
+  .progress-wrap { margin: 6px 0; }
+  .progress-label { display: flex; justify-content: space-between; font-size: .75rem; color: var(--dim); margin-bottom: 4px; }
+  .progress-bar { height: 4px; background: rgba(0,212,255,.1); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--blue2), var(--blue)); border-radius: 2px; transition: width .5s ease; }
+
+  /* ===== TASK LIST ===== */
+  .task-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 0; font-size: .78rem;
+    border-bottom: 1px solid rgba(0,212,255,.06);
+  }
+  .task-item:last-child { border-bottom: none; }
+  .task-icon { font-size: .9rem; flex-shrink: 0; margin-top: 1px; }
+  .task-text { color: var(--text); line-height: 1.4; }
+
+  /* ===== DOMAIN PANEL ===== */
+  .domain-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; font-size: .78rem;
+    border-bottom: 1px solid rgba(0,212,255,.06);
+  }
+  .domain-level {
+    font-family: monospace; font-size: .75rem;
+    padding: 2px 8px; border-radius: 3px; border: 1px solid var(--border);
+  }
+  .level-high { color: var(--green); border-color: rgba(0,255,136,.3); }
+  .level-mid  { color: var(--gold); border-color: rgba(255,215,0,.3); }
+  .level-low  { color: var(--dim); border-color: var(--border); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">JARVIS <span>/ موظف الليل</span></div>
+  <div class="status-badge"><div class="dot"></div> ONLINE</div>
+  <div id="clock">--:--:--</div>
+</header>
+
+<!-- LEFT: التداول + الدخل -->
+<aside class="left">
+
+  <div class="panel">
+    <div class="panel-title">📈 التداول</div>
+    <div class="metric"><span class="metric-label">الوضع</span><span class="metric-val neutral" id="trade-mode">محاكاة</span></div>
+    <div class="metric"><span class="metric-label">العامل الحالي</span><span class="metric-val neutral" id="trade-factor">—</span></div>
+    <div class="metric"><span class="metric-label">شارپ</span><span class="metric-val neutral" id="trade-sharpe">—</span></div>
+    <div class="metric"><span class="metric-label">P&L اليوم</span><span class="metric-val up" id="trade-pnl">—</span></div>
+    <div class="metric"><span class="metric-label">دورات</span><span class="metric-val neutral" id="trade-iters">—</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">💰 الدخل</div>
+    <div class="metric"><span class="metric-label">دخل اليوم</span><span class="metric-val up" id="income-today">$0.00</span></div>
+    <div class="metric"><span class="metric-label">مصروف API</span><span class="metric-val down" id="income-spent">$0.00</span></div>
+    <div class="metric"><span class="metric-label">صافي</span><span class="metric-val up" id="income-net">$0.00</span></div>
+    <div class="metric"><span class="metric-label">وفّر (مجاني)</span><span class="metric-val up" id="income-saved">$0.00</span></div>
+    <div class="metric"><span class="metric-label">المتبقي</span><span class="metric-val neutral" id="income-remaining">$2.00</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🤖 العقول</div>
+    <div id="engines-list">
+      <div class="metric"><span class="metric-label">يجري الفحص...</span><span class="metric-val neutral">⏳</span></div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- CENTER: الأفاتار + المحادثة -->
+<main class="center">
+  <div class="ring-container">
+    <div class="ring-outer"></div>
+    <div class="ring-mid"></div>
+    <div class="ring-inner"></div>
+    <div class="avatar">🤖</div>
+  </div>
+
+  <div class="chat-area" id="chat">
+    <div class="msg system">JARVIS جاهز — اكتب أي طلب أو مهمة</div>
+  </div>
+
+  <div class="input-row">
+    <button id="send-btn" onclick="sendCmd()">إرسال</button>
+    <input id="cmd" type="text" placeholder="اكتب مهمتك أو سؤالك..." onkeydown="if(event.key==='Enter')sendCmd()">
+  </div>
+</main>
+
+<!-- RIGHT: الدراسات + المهام + الذاكرة -->
+<aside class="right">
+
+  <div class="panel">
+    <div class="panel-title">📚 مستوى التعلم</div>
+    <div id="domains-list">
+      <div class="domain-item">
+        <span>تداول الأسهم</span>
+        <span class="domain-level level-low" id="dom-trading">0%</span>
+      </div>
+      <div class="domain-item">
+        <span>البرمجة</span>
+        <span class="domain-level level-high" id="dom-coding">80%</span>
+      </div>
+      <div class="domain-item">
+        <span>البحث والتحليل</span>
+        <span class="domain-level level-mid" id="dom-research">45%</span>
+      </div>
+      <div class="domain-item">
+        <span>تحليل البيانات</span>
+        <span class="domain-level level-low" id="dom-data">20%</span>
+      </div>
+    </div>
+    <div class="progress-wrap" style="margin-top:10px">
+      <div class="progress-label"><span>تقدم الإتقان العام</span><span id="mastery-pct">—</span></div>
+      <div class="progress-bar"><div class="progress-fill" id="mastery-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">🧠 الذاكرة</div>
+    <div class="metric"><span class="metric-label">معلومات محفوظة</span><span class="metric-val neutral" id="mem-count">—</span></div>
+    <div class="metric"><span class="metric-label">وسوم فريدة</span><span class="metric-val neutral" id="mem-tags">—</span></div>
+    <div class="metric"><span class="metric-label">ملفات Obsidian</span><span class="metric-val neutral" id="mem-vault">—</span></div>
+  </div>
+
+  <div class="panel" style="flex:1">
+    <div class="panel-title">✅ المهام الأخيرة</div>
+    <div id="tasks-list">
+      <div class="task-item">
+        <span class="task-icon">⏳</span>
+        <span class="task-text">جارٍ التحميل...</span>
+      </div>
+    </div>
+  </div>
+
+</aside>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-stat">
+    <div class="stat">نظام: <span class="stat-val" id="sys-version">SelfRunner v3.0</span></div>
+    <div class="stat">نموذج: <span class="stat-val" id="sys-model">—</span></div>
+  </div>
+  <div style="color:var(--dim)">JARVIS — موظف الليل — مدعوم بـ Ollama + Claude</div>
+  <div class="footer-stat">
+    <div class="stat">API: <span class="stat-val" id="sys-api-calls">0</span></div>
+    <div class="stat">حالة: <span class="stat-val" style="color:var(--green)" id="sys-status">متصل</span></div>
+  </div>
+</footer>
+
+<script>
+// ===== Clock =====
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('ar-SA', {hour12: false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ===== API Base =====
+const API = 'http://localhost:8082';
+let apiCalls = 0;
+
+async function apiFetch(path, opts={}) {
+  try {
+    apiCalls++;
+    document.getElementById('sys-api-calls').textContent = apiCalls;
+    const r = await fetch(API + path, {
+      headers: {'Content-Type':'application/json'},
+      ...opts
+    });
+    return r.ok ? r.json() : null;
+  } catch { return null; }
+}
+
+// ===== Chat =====
+function addMsg(text, type='bot') {
+  const chat = document.getElementById('chat');
+  const d = document.createElement('div');
+  d.className = `msg ${type}`;
+  d.textContent = text;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendCmd() {
+  const inp = document.getElementById('cmd');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  addMsg(text, 'user');
+  addMsg('⏳ جارٍ المعالجة...', 'system');
+
+  const res = await apiFetch('/chat', {
+    method: 'POST',
+    body: JSON.stringify({message: text})
+  });
+
+  // حذف رسالة الانتظار
+  const chat = document.getElementById('chat');
+  const waiting = chat.querySelector('.msg.system:last-child');
+  if (waiting && waiting.textContent.includes('⏳')) waiting.remove();
+
+  if (res && res.reply) {
+    addMsg(res.reply, 'bot');
+  } else {
+    addMsg('⚠️ الخادم غير متاح — شغّل: python jarvis.py', 'system');
+  }
+}
+
+// ===== Load Status =====
+async function loadStatus() {
+  const s = await apiFetch('/status');
+  if (!s) return;
+
+  // العقول
+  if (s.engines) {
+    const el = document.getElementById('engines-list');
+    el.innerHTML = s.engines.map(e =>
+      `<div class="metric">
+        <span class="metric-label">${e.name}</span>
+        <span class="metric-val ${e.available ? 'up' : 'down'}">${e.available ? '✅' : '⛔'}</span>
+      </div>`
+    ).join('');
+  }
+
+  // نموذج
+  if (s.model) document.getElementById('sys-model').textContent = s.model;
+
+  // ذاكرة
+  if (s.memory) {
+    document.getElementById('mem-count').textContent = s.memory.total_items ?? '—';
+    document.getElementById('mem-tags').textContent = s.memory.unique_tags ?? '—';
+  }
+  if (s.vault_files != null) document.getElementById('mem-vault').textContent = s.vault_files;
+
+  // مجالات
+  if (s.domains) {
+    for (const [key, pct] of Object.entries(s.domains)) {
+      const el = document.getElementById(`dom-${key}`);
+      if (el) {
+        el.textContent = pct + '%';
+        el.className = `domain-level ${pct>=70?'level-high':pct>=40?'level-mid':'level-low'}`;
+      }
+    }
+  }
+
+  // إتقان
+  if (s.mastery_pct != null) {
+    document.getElementById('mastery-pct').textContent = s.mastery_pct + '%';
+    document.getElementById('mastery-bar').style.width = s.mastery_pct + '%';
+  }
+
+  // تداول
+  if (s.trading) {
+    const t = s.trading;
+    document.getElementById('trade-mode').textContent = t.mode ?? '—';
+    document.getElementById('trade-factor').textContent = t.factor ?? '—';
+    document.getElementById('trade-sharpe').textContent = t.sharpe ?? '—';
+    document.getElementById('trade-pnl').textContent = t.pnl ?? '—';
+    document.getElementById('trade-iters').textContent = t.iters ?? '—';
+  }
+
+  // دخل
+  if (s.finance) {
+    const f = s.finance;
+    document.getElementById('income-today').textContent = '$' + (f.income_today_usd ?? '0.00');
+    document.getElementById('income-spent').textContent = '$' + (f.spent_today_usd ?? '0.00');
+    document.getElementById('income-net').textContent = '$' + (f.net_usd ?? '0.00');
+    document.getElementById('income-saved').textContent = '$' + (f.free_savings_usd ?? '0.00');
+    document.getElementById('income-remaining').textContent = '$' + (f.budget_remaining_today ?? '2.00');
+  }
+
+  // مهام
+  if (s.tasks && s.tasks.length) {
+    document.getElementById('tasks-list').innerHTML = s.tasks.slice(0,6).map(t =>
+      `<div class="task-item">
+        <span class="task-icon">${t.done?'✅':t.running?'🔄':'📋'}</span>
+        <span class="task-text">${t.title}</span>
+      </div>`
+    ).join('');
+  }
+
+  document.getElementById('sys-status').textContent = 'متصل';
+}
+
+// حمّل الحالة كل 5 ثواني
+loadStatus();
+setInterval(loadStatus, 5000);
+</script>
+</body>
+</html>

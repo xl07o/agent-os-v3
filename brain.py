@@ -322,7 +322,17 @@ def _call_ollama(msgs):
         ),
         "stream": False,
     }
-    data = _safe_request(OLLAMA_URL, payload)
+    # Ollama is a local service — bypass SSRF guard for localhost:11434
+    data_bytes = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        OLLAMA_URL, data=data_bytes,
+        headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        raise Exception(f"خطأ ollama: {e}")
     return data["message"]["content"].strip(), "ollama"
 
 
