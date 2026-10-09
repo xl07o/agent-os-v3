@@ -637,6 +637,12 @@ class Brain:
         if not av:
             return None
         mode = mode or self.mode
+        # وضع = معرّف مزود محدد بالاسم (anthropic/groq/gemini/...) → استخدمه
+        # حصراً إن كان متاحاً، بدل الاختيار التلقائي — هذا ما يسمح بـ
+        # SELFRUNNER_MODE=anthropic لحصر العقل بمزود واحد فقط دون حذف الباقين.
+        named = next((e for e in av if e["id"] == mode), None)
+        if named:
+            return named
         if mode == "ollama":
             return next((e for e in av if e["id"] == "ollama"), av[0])
         if mode == "fastest":
