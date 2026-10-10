@@ -81,7 +81,9 @@
 
 - يقدر الوكيل يلقى أي حقيقة بخطوتين بالذاكرة (`memory_bank.recall` ثم
   الملف نفسه)، لا يلف على كل شي؟
-- فيه شي يشتغل والجهاز مقفول؟ (حالياً: لا — كل التشغيل يدوي عبر
-  `chat_cli.py`/`selfrunner.py`؛ تشغيل مجدول حقيقي لسا ما بُني)
+- فيه شي يشتغل بدون تدخل؟ (نعم — Windows Task Scheduler `AgentOS-TaskQueue-Hourly`
+  يشغّل `agent_os/task_queue.py run` كل ساعة، مُتحقَّق منه بـ`schtasks /query`
+  لا مجرّد كود مكتوب. التشغيل اليدوي عبر `chat_cli.py`/`selfrunner.py`/
+  `desktop_app.py` يبقى متوفر فوق هذا)
 - الداشبورد (`//بناء لوحة`) يعرض أرقاماً حقيقية من `finance_intel`
   وغيره، ولا نص وهمي من العقل؟
