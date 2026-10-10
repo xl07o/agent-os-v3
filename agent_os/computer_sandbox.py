@@ -99,8 +99,12 @@ def run_bash(sandbox_id, command, timeout=60):
 
 def screenshot(sandbox_id):
     """لقطة شاشة كاملة من داخل الـsandbox — bytes لصورة PNG."""
+    import base64
     sandbox = _get_sandbox(sandbox_id)
-    return sandbox.computer_use.screenshot.take_full_screen()
+    resp = sandbox.computer_use.screenshot.take_full_screen()
+    if resp and resp.screenshot:
+        return base64.b64decode(resp.screenshot)
+    return None
 
 
 def click(sandbox_id, x, y):

@@ -47,6 +47,12 @@ try:
 except ImportError:
     _HAS_SUGGEST = False
 
+try:
+    from agent_os import computer_sandbox as _cs
+    _HAS_CS = True
+except ImportError:
+    _HAS_CS = False
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 try:
     from agent_os import security_kernel as _auth
@@ -137,6 +143,13 @@ TOOL_HELP = """\
   CONTROL: <أمر> [<معاملات JSON>] -> تحكم بالجهاز (ماوس/كيبورد/نوافذ/ملفات)
   STRATEGY                   -> عرض أفضل الفرص المربحة الآن
   SUGGEST                    -> اقتراحات ذكية بناءً على ما تعلمته
+  SANDBOX_CREATE[: <label>]  -> أنشئ sandbox Daytona معزول (يحتاج موافقة)
+  SANDBOX_BASH: <id> <أمر>   -> نفّذ أمر bash في sandbox المعزول (يحتاج موافقة)
+  SANDBOX_SCREENSHOT: <id>   -> لقطة شاشة من داخل sandbox
+  SANDBOX_CLICK: <id> <x> <y> -> كليك في sandbox (يحتاج موافقة)
+  SANDBOX_TYPE: <id> <نص>    -> اكتب نصاً في sandbox (يحتاج موافقة)
+  SANDBOX_DESTROY: <id>      -> دمّر sandbox (يحتاج موافقة)
+  SANDBOX_LIST               -> اعرض sandboxes النشطة
   SCREENSHOT                 -> صورة شاشة الآن
   SYSINFO                    -> معلومات الجهاز
 """
@@ -528,6 +541,88 @@ def handle_tool(content):
         for i, s in enumerate(suggestions, 1):
             lines.append(f"{i}. {s.get('idea')} [{s.get('field')}] - {s.get('profit')}")
         return True, "\n".join(lines)
+
+    # ===== sandbox Daytona المعزول (computer-use آمن) =====
+    if content.startswith("SANDBOX_"):
+        if not _HAS_CS:
+            return True, "(خطأ: computer_sandbox غير متاح — تحقق من pip install daytona)"
+
+        # أوامر القراءة فقط لا تحتاج موافقة
+        _READ_ONLY_SB = {"SANDBOX_LIST"}
+        needs_approval = not (
+            content == "SANDBOX_LIST"
+            or content.startswith("SANDBOX_SCREENSHOT:")
+        )
+
+        if needs_approval:
+            from agent_os import approval_center as _ac
+            req = _ac.create_request(
+                what=f"sandbox: {content[:100]}",
+                why="الوكيل يريد تنفيذ أمر داخل sandbox Daytona المعزول",
+                kind="external_action",
+                risk="medium",
+            )
+            if AUTO_RUN == "ask":
+                try:
+                    ans = input(f"[موافقة sandbox] {content[:80]} ؟ (y/N) ").strip().lower()
+                except Exception:
+                    ans = ""
+                if ans not in ("y", "yes", "نعم"):
+                    _ac.cancel(req["id"])
+                    return True, _as_tool_result("(رفض المستخدم تنفيذ أمر sandbox)")
+                _ac.approve(req["id"])
+            elif AUTO_RUN != "allow":
+                _ac.cancel(req["id"])
+                return True, _as_tool_result(
+                    "(sandbox يتطلب SELFRUNNER_AUTORUN=allow أو موافقة صريحة)"
+                )
+
+        if content == "SANDBOX_CREATE" or content.startswith("SANDBOX_CREATE:"):
+            label = content[15:].strip() if content.startswith("SANDBOX_CREATE:") else "agent-os"
+            sb_id = _cs.create(label=label or "agent-os")
+            return True, _as_tool_result(f"sandbox جديد: {sb_id}")
+
+        if content.startswith("SANDBOX_BASH:"):
+            rest = content[13:].strip()
+            parts = rest.split(" ", 1)
+            if len(parts) < 2:
+                return True, "(استخدام: SANDBOX_BASH: <id> <أمر>)"
+            sb_id, cmd = parts[0], parts[1]
+            result = _cs.run_bash(sb_id, cmd)
+            return True, _as_tool_result(json.dumps(result, ensure_ascii=False))
+
+        if content.startswith("SANDBOX_SCREENSHOT:"):
+            sb_id = content[19:].strip()
+            png = _cs.screenshot(sb_id)
+            return True, _as_tool_result(f"screenshot: {len(png) if png else 0} bytes PNG")
+
+        if content.startswith("SANDBOX_CLICK:"):
+            parts = content[14:].strip().split()
+            if len(parts) < 3:
+                return True, "(استخدام: SANDBOX_CLICK: <id> <x> <y>)"
+            sb_id, x, y = parts[0], int(parts[1]), int(parts[2])
+            _cs.click(sb_id, x, y)
+            return True, _as_tool_result("click ok")
+
+        if content.startswith("SANDBOX_TYPE:"):
+            rest = content[13:].strip()
+            parts = rest.split(" ", 1)
+            if len(parts) < 2:
+                return True, "(استخدام: SANDBOX_TYPE: <id> <نص>)"
+            sb_id, text = parts[0], parts[1]
+            _cs.type_text(sb_id, text)
+            return True, _as_tool_result("type ok")
+
+        if content.startswith("SANDBOX_DESTROY:"):
+            sb_id = content[16:].strip()
+            _cs.destroy(sb_id)
+            return True, _as_tool_result(f"sandbox {sb_id} دُمِّر")
+
+        if content == "SANDBOX_LIST":
+            active = _cs.active_sandboxes()
+            return True, _as_tool_result(json.dumps(active, ensure_ascii=False, indent=2))
+
+        return True, f"(أمر sandbox غير معروف: {content})"
 
     return None, None
 
