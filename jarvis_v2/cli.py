@@ -13,11 +13,33 @@ except ImportError:  # تشغيل مباشر بدون حزمة
     from jarvis_v2 import config, evidence, orchestrator
 
 
+def _record_decision(name, args, decision):
+    """يسجّل كل قرار (تلقائي أو يدوي) بـapproval_center.py — مركز موافقة واحد
+    للمشروع كله، بدل ما يبقى قرار Hermes بلا أثر خارج هذه الجلسة. غير قاتل:
+    فشل التسجيل لا يغيّر القرار نفسه."""
+    try:
+        from agent_os import approval_center as _ac
+        req = _ac.create_request(
+            what="hermes: %s %s" % (name, config.short_args(args, 100)),
+            why="Hermes (jarvis_v2) يريد تنفيذ أداة قد تغيّر حالة حقيقية",
+            kind="external_action", risk="medium",
+        )
+        if decision:
+            _ac.approve(req["id"], by="hermes_cli")
+        else:
+            _ac.cancel(req["id"])
+    except Exception:
+        pass
+
+
 def _approver(name, args):
-    """خط يشبه opencode: لكل أمر/كتابة يقرر المستخدم. read-only تنفذ تلقائياً."""
+    """خط يشبه opencode: لكل أمر/كتابة يقرر المستخدم. read-only تنفذ تلقائياً.
+    كل قرار يُسجَّل بـapproval_center.py أيضاً (سجل موافقة موحّد للمشروع)."""
     if config.AUTORUN == "allow":
+        _record_decision(name, args, True)
         return True
     if config.AUTORUN == "deny":
+        _record_decision(name, args, False)
         return False
     prompt = "\n⚡ إذن مطلوب لـ %s\n   المعاملات: %s\n[ت] تنفيذ / [ن] رفض / [س] تخطي: " % (
         name, config.short_args(args, 100))
@@ -25,12 +47,16 @@ def _approver(name, args):
         try:
             a = input(prompt).strip().lower()
         except (EOFError, KeyboardInterrupt):
+            _record_decision(name, args, False)
             return False
         if a in ("ت", "y", "yes", "نعم"):
+            _record_decision(name, args, True)
             return True
         if a in ("ن", "n", "no", "لا"):
+            _record_decision(name, args, False)
             return False
         if a in ("س", ""):
+            _record_decision(name, args, False)
             return False
 
 
