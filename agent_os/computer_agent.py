@@ -23,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent_os import _common as C
+from agent_os import security_kernel as _sk
 
 BASE = C.BASE_DIR
 LOG_FILE = os.path.join(C.AGENT_OS_DIR, "computer_agent.json")
@@ -37,16 +38,21 @@ def _allow(cmd):
     if not cmd:
         return "deny"
     head = os.path.basename(cmd[0]).lower() if os.path.dirname(cmd[0]) else cmd[0].lower()
+    # مصدر واحد للأوامر الحساسة صراحة (curl/wget/bash/powershell/pwsh/ssh/sudo/...)
+    # — كانت powershell/pwsh مسموحة دائماً هنا بشكل غير مشروط (بلا فحص محتواها
+    # إطلاقاً) رغم إن security_kernel.FORBIDDEN_COMMANDS يحظرها صراحة؛ محرّكا
+    # أمان يتناقضان على نفس الأمر بالضبط. الآن security_kernel هو الحكم الوحيد.
+    if head in _sk.FORBIDDEN_COMMANDS:
+        return "deny"
     if head in BLOCKED_CMDS or (len(cmd) > 1 and cmd[1].lower() in ("-rf", "-r") and head == "rm"):
         return "deny"
     if BLOCKED_PAT.search(" ".join(cmd).lower()):
         return "deny"
     if head in ("python", "py", "git", "where", "findstr",
-                "copy", "xcopy", "mkdir", "explorer", "tasklist",
-                "powershell", "pwsh", "pythonw"):
+                "copy", "xcopy", "mkdir", "explorer", "tasklist", "pythonw"):
         return "permit"
     # الولوج الكامل (مفتاح المستخدم): يفتح أوامر «needs_human» للتنفيذ المباشر،
-    # مع بقاء ALLOWED_TOTAL المشغّلة... والممنوعات القاتلة أعلاه ممنوعة دائماً.
+    # مع بقاء الممنوعات القاتلة أعلاه + قائمة security_kernel ممنوعة دائماً.
     try:
         from agent_os import full_access
         if full_access.is_enabled():

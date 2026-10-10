@@ -148,8 +148,11 @@ def _resolve_host_ips(host):
     holder = {}
     def _res():
         try:
-            with socket.setdefaulttimeout(5):
-                rows = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+            # socket.setdefaulttimeout() يرجع None — ليس context manager. استخدامه
+            # بـ"with" كان يرمي TypeError يُبتلع بالأسفل فوراً، فالدالة ترجع
+            # set() فاضية دائماً وفحص DNS rebinding لا يفحص شيئاً أبداً.
+            socket.setdefaulttimeout(5)
+            rows = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
             holder["ips"] = set(r[4][0] for r in rows)
         except Exception:
             holder["ips"] = set()

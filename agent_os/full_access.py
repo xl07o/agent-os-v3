@@ -24,10 +24,12 @@ LOG_FILE = os.path.join(C.AGENT_OS_DIR, "full_access_audit.jsonl")
 
 def status():
     """حالة الولوج الحالية — للّوحة وللقرارات الداخلية.
-    الافتراضي: الولوج مفعّل تلقائياً (ولوج دائم) حتى يُعاد إغلاقه صراحةً."""
+    الافتراضي: الولوج **غير** مفعّل (مقيّد بالقائمة البيضاء) حتى يُفعَّل صراحةً —
+    يطابق تعهّد docstring الملف أعلاه؛ كان هذا الملف يرجع True افتراضياً، عكس
+    ما يقوله، فيفتح computer_agent أوامر needs_human بلا أي تفعيل صريح."""
     d = C.load_json(FA_FILE, {})
     return {
-        "enabled": bool(d.get("enabled", True)),
+        "enabled": bool(d.get("enabled", False)),
         "at": d.get("at"),
         "reason": d.get("reason", ""),
     }
