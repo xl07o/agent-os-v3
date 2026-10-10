@@ -15,18 +15,14 @@ data/self_improve_backups، كي لو صار خطأ حتى بعد كل هذا ي
 الجهاز يرجّعها يدوياً بثانية.
 """
 
-import base64
 import difflib
-import io
 import json
 import os
-import tarfile
 import time
 
 from . import approval, decision, sandbox
 
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_DIR = os.path.dirname(_PKG_DIR)
 _DATA_DIR = os.path.join(_PKG_DIR, "data")
 _PROPOSALS_FILE = os.path.join(_DATA_DIR, "self_improve_proposals.json")
 _BACKUP_DIR = os.path.join(_DATA_DIR, "self_improve_backups")
@@ -36,7 +32,8 @@ _BACKUP_DIR = os.path.join(_DATA_DIR, "self_improve_backups")
 _SUBMODULES = [
     "env", "safety", "approval", "memory", "brain", "sandbox",
     "obsidian", "tools", "status", "housekeeping", "self_improve",
-    "kernel", "cli",
+    "roles", "decision", "bots", "chatroom", "skills", "evidence",
+    "router", "metrics", "web_chat", "deploy", "kernel", "cli",
 ]
 
 
@@ -64,30 +61,8 @@ def _real_path(relative_filename: str) -> str:
     return path
 
 
-def _build_test_tarball_b64(relative_filename: str, new_content: str) -> str:
-    """حزمة agent_os4 كاملة + obsidian_vault.py (يستوردها obsidian.py)،
-    بالملف المستهدف مُستبدَلاً بالمحتوى الجديد — هذا بالضبط ما يُختبر
-    بالساندبوكس، لا الملف لحاله بمعزل عن بقية الحزمة."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        vault_path = os.path.join(_REPO_DIR, "obsidian_vault.py")
-        if os.path.exists(vault_path):
-            tar.add(vault_path, arcname="obsidian_vault.py")
-        for name in sorted(os.listdir(_PKG_DIR)):
-            if not name.endswith(".py"):
-                continue
-            if name == relative_filename:
-                data = new_content.encode("utf-8")
-                info = tarfile.TarInfo(name=f"agent_os4/{name}")
-                info.size = len(data)
-                tar.addfile(info, io.BytesIO(data))
-            else:
-                tar.add(os.path.join(_PKG_DIR, name), arcname=f"agent_os4/{name}")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
-
-
 def _test_in_sandbox(relative_filename: str, new_content: str) -> dict:
-    tar_b64 = _build_test_tarball_b64(relative_filename, new_content)
+    tar_b64 = sandbox.build_package_tarball_b64({relative_filename: new_content})
     imports = ", ".join(f"agent_os4.{m}" for m in _SUBMODULES)
     script = (
         "set -e\n"

@@ -2,9 +2,10 @@
 
 import os
 
-from . import approval, bots, chatroom, decision, evidence, housekeeping, kernel, metrics, router, self_improve, skills
+from . import approval, bots, chatroom, decision, deploy, evidence, housekeeping, kernel, metrics, router, self_improve, skills
 
 _HELP = """أوامر خاصة (غير مرسلة للعقل):
+  انشر                                       ينشر شاتاً ويباً على Daytona ويعطيك رابطاً تفتحه بالمتصفح
   تحسين <ملف.py> <مسار_محتوى_جديد> <سبب>   يقترح تعديلاً، يختبره بساندبوكس، يفتح طلب موافقة
   اقتراحات                                  يعرض كل اقتراحات التطوير الذاتي المعلّقة/المحلولة
   طبّق <id>                                 يطبّق اقتراحاً مُوافَقاً عليه فعلياً على الملف
@@ -214,6 +215,17 @@ def _handle_metrics() -> None:
     print(f"  مهارات مسجّلة: {m['skills_registered']}")
 
 
+def _handle_deploy() -> None:
+    print("ينشر على Daytona... قد يأخذ دقيقة.")
+    result = deploy.deploy()
+    if not result["ok"]:
+        print(f"فشل عند مرحلة {result['stage']}: {result['error']}")
+        return
+    print(f"جاهز! افتح هذا الرابط بالمتصفح (صالح {result['expires_in_seconds']} ثانية):")
+    print(f"  {result['url']}")
+    print(f"لإيقافه لاحقاً: python3 -c \"from agent_os4 import deploy; deploy.teardown('{result['sandbox_id']}')\"")
+
+
 def main() -> None:
     pending = approval.pending()
     if pending:
@@ -246,6 +258,9 @@ def main() -> None:
             continue
         if task.startswith("استرجاع "):
             _handle_restore(task[len("استرجاع "):].strip())
+            continue
+        if task in ("انشر",):
+            _handle_deploy()
             continue
         if task.startswith("وافق "):
             _handle_resolve(task[len("وافق "):].strip(), approved=True)
