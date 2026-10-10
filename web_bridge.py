@@ -18,6 +18,7 @@ web_bridge.py - جسر قراءة محلي بين وكيلك الحقيقي وم
   GET /api/approvals        طلبات الموافقة المعلّقة فقط (id, what, why, risk, created)
   GET /api/stats            أرقام مجمّعة حقيقية للموقع
   GET /api/trading/pipeline لقطة حالة وكيل التداول ذاتي التحسين (trading/)
+  GET /api/os4/status       لقطة حالة نواة agent_os4 (موافقات معلّقة، ذاكرة، تهيئة المفاتيح)
 """
 
 import json
@@ -107,11 +108,25 @@ def _trading_pipeline_payload():
     return snap
 
 
+def _os4_status_payload():
+    try:
+        from agent_os4 import status
+        return status.snapshot()
+    except Exception:
+        return {
+            "pending_approvals": 0,
+            "memory_entries": 0,
+            "claude_configured": False,
+            "daytona_configured": False,
+        }
+
+
 ROUTES = {
     "/api/specialists": _specialists_payload,
     "/api/approvals": _approvals_payload,
     "/api/stats": _stats_payload,
     "/api/trading/pipeline": _trading_pipeline_payload,
+    "/api/os4/status": _os4_status_payload,
 }
 
 
@@ -159,7 +174,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[web_bridge] يستمع على http://{HOST}:{PORT} — قراءة فقط، محلي بحت.")
-    print("[web_bridge] نقاط النهاية: /api/specialists  /api/approvals  /api/stats")
+    print("[web_bridge] نقاط النهاية: /api/specialists  /api/approvals  /api/stats  /api/os4/status")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
