@@ -34,6 +34,7 @@ _LOCALHOST_ORIGIN = re.compile(
 )
 
 _sessions = {}  # chat_id -> brain.Brain
+_pending_actions = {}  # chat_id -> نص المهمة بانتظار تأكيدك قبل تشغيلها عبر hermes
 
 # ---- واجهة الويب المحلية (مدمجة) ----------------------------------------
 _UI_HTML = """<!DOCTYPE html>
@@ -92,10 +93,30 @@ async function send(){
   try{
     const r=await fetch(B+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m,chat_id:cid})});
     const d=await r.json();cid=d.chat_id||cid;
-    addMsg(d.reply||d.error||'(لا رد)','bot');
+    if(d.needs_confirmation){addConfirm(d.reply||'تأكيد؟');}
+    else{addMsg(d.reply||d.error||'(لا رد)','bot');}
   }catch(e){addMsg('خطأ: '+e.message,'err');}
   document.getElementById('btn').disabled=false;
   document.getElementById('inp').focus();
+}
+function addConfirm(t){
+  addMsg(t,'bot');
+  const row=document.createElement('div');
+  row.id='confirmRow';row.className='irow';row.style.alignSelf='flex-end';
+  row.innerHTML='<button onclick="confirmAction(true)">نفّذ</button>'
+    +'<button onclick="confirmAction(false)" style="background:#475569">تجاهل</button>';
+  const ms=document.getElementById('msgs');ms.appendChild(row);ms.scrollTop=ms.scrollHeight;
+}
+async function confirmAction(ok){
+  const row=document.getElementById('confirmRow');if(row)row.remove();
+  addMsg(ok?'نفّذ':'تجاهل','user');
+  document.getElementById('btn').disabled=true;
+  try{
+    const r=await fetch(B+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:cid,confirm_action:ok})});
+    const d=await r.json();
+    addMsg(d.reply||d.error||'(لا رد)','bot');
+  }catch(e){addMsg('خطأ: '+e.message,'err');}
+  document.getElementById('btn').disabled=false;
 }
 function addMsg(t,c){
   const d=document.createElement('div');d.className='msg '+c;d.textContent=t;
@@ -115,6 +136,8 @@ function render(d){
   html+=`<div class="card"><h3>طابور المهام</h3>${Object.entries(t).map(([k,v])=>`<span class="badge ${k==='done'?'ok':k==='failed'?'err':k==='running'?'warn':'neu'}">${k}: ${v}</span>`).join('')||'<span class="badge neu">فارغ</span>'}</div>`;
   html+=`<div class="card"><h3>Sandboxes</h3><span class="badge ${sbN>0?'warn':'neu'}">${sbN} نشط</span>${Object.entries(sb).map(([id,v])=>`<div style="font-size:0.7rem;color:#64748b;margin-top:3px">● ${id.slice(0,8)}… ${v.label||''}</div>`).join('')}</div>`;
   html+=`<div class="card"><h3>آخر الأخطاء (${d.errors_today||0} اليوم)</h3>${errs.length?errs.slice(0,6).map(e=>`<div class="ei"><span class="es">[${e.source||'?'}]</span> ${e.type||'?'}: ${(e.msg||'').slice(0,55)}<span class="ts">${(e.ts||'').slice(0,16)}</span></div>`).join(''):'<div style="color:#4ade80;font-size:0.78rem">لا أخطاء ✓</div>'}</div>`;
+  const da=d.daily_autopilot||{};
+  html+=`<div class="card"><h3>المحرك اليومي</h3>${da.last_report_at?`<div style="font-size:0.72rem;color:#94a3b8">${(da.summary||'').slice(0,80)}</div><span class="ts">${da.last_report_at.slice(0,16)}</span>`:'<span class="badge neu">لم يشتغل بعد</span>'}</div>`;
   document.getElementById('side').innerHTML=html;
 }
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
@@ -132,6 +155,18 @@ def _get_session(chat_id):
             "إذا احتجت فعل حقيقي (تصفح/تحكم جهاز)، قل إنك تحتاج صلاحية sandbox."
         )
     return _sessions[chat_id]
+
+
+def _wants_action(raw):
+    """نفس كاشف النية بـchat_cli.py — بدون هذا، الشات بالنافذة محادثة فقط
+    حتى لو الطرفية تقدر تنفّذ فعلياً لنفس الرسالة."""
+    import chat_cli
+    return chat_cli._wants_action(raw)
+
+
+def _run_hermes(task):
+    import chat_cli
+    return chat_cli._run_hermes(task)
 
 
 def _status_data():
@@ -165,6 +200,22 @@ def _status_data():
         data["worker_alive"] = inbox_worker.worker_alive()
     except Exception:
         data["worker_alive"] = None
+    try:
+        import datetime
+        report_path = os.path.join(BASE_DIR, "output", "daily_autopilot_report.md")
+        if os.path.exists(report_path):
+            with open(report_path, encoding="utf-8", errors="replace") as f:
+                first_line = f.readline().strip()
+            data["daily_autopilot"] = {
+                "last_report_at": datetime.datetime.fromtimestamp(
+                    os.path.getmtime(report_path)
+                ).isoformat(),
+                "summary": first_line[:120],
+            }
+        else:
+            data["daily_autopilot"] = {"last_report_at": None, "summary": None}
+    except Exception:
+        data["daily_autopilot"] = {"last_report_at": None, "summary": None}
     return data
 
 
@@ -211,16 +262,35 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
-            message = str(body.get("message", "")).strip()
             chat_id = str(body.get("chat_id") or uuid.uuid4())
-            if not message:
-                raise ValueError("empty message")
+            confirm = body.get("confirm_action")
 
-            session = _get_session(chat_id)
-            text, engine = session.ask(message)
+            if confirm is not None and chat_id in _pending_actions:
+                # رد على سؤال التأكيد اللي رجعناه بالرد السابق — ننفّذ أو نتجاهل
+                pending_task = _pending_actions.pop(chat_id)
+                if confirm:
+                    reply = _run_hermes(pending_task)
+                    payload = {"chat_id": chat_id, "reply": reply, "engine": "hermes"}
+                else:
+                    payload = {"chat_id": chat_id, "reply": "تم التجاهل — تفضل اسأل عادي."}
+                status = 200
+            else:
+                message = str(body.get("message", "")).strip()
+                if not message:
+                    raise ValueError("empty message")
 
-            payload = {"chat_id": chat_id, "reply": text, "engine": engine}
-            status = 200
+                if _wants_action(message):
+                    _pending_actions[chat_id] = message
+                    payload = {
+                        "chat_id": chat_id,
+                        "needs_confirmation": True,
+                        "reply": "رسالتك تبدو مهمة تنفيذية — أشغّلها عبر hermes agent؟",
+                    }
+                else:
+                    session = _get_session(chat_id)
+                    text, engine = session.ask(message)
+                    payload = {"chat_id": chat_id, "reply": text, "engine": engine}
+                status = 200
         except Exception as e:
             payload = {"error": str(e)[:200]}
             status = 400
