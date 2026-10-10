@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """سجلّ الأدوات — الأسماء تُربط بالدوال الحقيقية؛ التنفيذ الفعلي فقط (لا محاكاة)."""
-from . import fs, exec_, web
+from . import fs, exec_, web, sandbox
 
 TOOLS = {
     "read_file": fs.read_file,
@@ -10,9 +10,22 @@ TOOLS = {
     "grep": fs.grep,
     "bash": exec_.run_bash,
     "fetch_url": web.fetch_url,
+    "sandbox_create": sandbox.sandbox_create,
+    "sandbox_bash": sandbox.sandbox_bash,
+    "sandbox_screenshot": sandbox.sandbox_screenshot,
+    "sandbox_click": sandbox.sandbox_click,
+    "sandbox_type": sandbox.sandbox_type,
+    "sandbox_destroy": sandbox.sandbox_destroy,
+    "sandbox_list": sandbox.sandbox_list,
 }
 
-DESTRUCTIVE = {"bash", "write_file", "edit_file"}   # أوامر تحتاج إذنًا عند سياسة ask
+# أوامر تحتاج إذنًا عند سياسة ask. sandbox_create/bash/click/type/destroy تغيّر
+# حالة حقيقية (لو داخل sandbox معزول لا على الجهاز) — نفس حذر bash/write_file.
+# sandbox_screenshot/sandbox_list للقراءة فقط، لا تحتاج إذناً.
+DESTRUCTIVE = {
+    "bash", "write_file", "edit_file",
+    "sandbox_create", "sandbox_bash", "sandbox_click", "sandbox_destroy", "sandbox_type",
+}
 
 DESCRIPTIONS = {
     "read_file": "قراءة ملف (path)",
@@ -22,6 +35,13 @@ DESCRIPTIONS = {
     "grep": "بحث نص في ملفات (pattern, [path], [include])",
     "bash": "أمر PowerShell حقيقي (command) — قد يكون خطيرًا",
     "fetch_url": "جلب صفحة/JSON من عنوان (url)",
+    "sandbox_create": "أنشئ sandbox Daytona معزول للتحكم الحاسوبي ([label]) — يرجع sandbox_id",
+    "sandbox_bash": "نفّذ أمر bash داخل sandbox معزول (sandbox_id, command)",
+    "sandbox_screenshot": "لقطة شاشة من داخل sandbox (sandbox_id)",
+    "sandbox_click": "كليك داخل sandbox (sandbox_id, x, y)",
+    "sandbox_type": "اكتب نصاً داخل sandbox (sandbox_id, text)",
+    "sandbox_destroy": "دمّر sandbox بعد الانتهاء (sandbox_id)",
+    "sandbox_list": "اعرض sandboxes النشطة حالياً",
 }
 
 

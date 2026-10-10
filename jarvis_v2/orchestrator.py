@@ -18,10 +18,14 @@ _PLAN_PROMPT = (
     "المهمة تساعدك أدوات حقيقية تُعدّل ملفات وتشغّل أوامر. القاعدة الذهبية: لا تختلق — "
     "قبل أي ادعاء ناجح يجب تنفيذ أداة حقيقية.\n"
     "ردّك يجب أن يكون JSON فقط (بلا صندوق، بلا نص خارجي) بهذا الشكل:\n"
-    '{{"goal":"...", "steps":[{{"tool":"read_file|write_file|edit_file|glob|grep|bash|fetch_url",'
+    '{{"goal":"...", "steps":[{{"tool":"read_file|write_file|edit_file|glob|grep|bash|fetch_url|'
+    'sandbox_create|sandbox_bash|sandbox_screenshot|sandbox_click|sandbox_type|sandbox_destroy|sandbox_list",'
     '"args":{{...}}, "why":"لماذا هذه الخطوة"}}]}}\n'
     "اختر خطوات قليلة فاعلة (1-6). اقرأ ما تحتاجه أولاً. لكتابة/تعديل استخدم مسارات نسبية. "
     "للتحقق بعد الكتابة أضف خطوة bash آمنة مثل 'python -m py_compile <ملف>'.\n"
+    "لو المهمة تحتاج تصفح/نقر/كتابة على واجهة حقيقية (مو ملفات/أوامر)، استخدم sandbox_create "
+    "أولاً، ثم sandbox_bash/click/type/screenshot بنفس sandbox_id، ثم sandbox_destroy بالنهاية — "
+    "أبداً bash مباشرة لهذا النوع من المهام.\n"
     "الأدوات: {tools}\n"
     "المهمة: قلب المهمة: {task}\n"
     "لا تكتب أي شيء غير JSON."
