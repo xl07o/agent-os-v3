@@ -73,6 +73,14 @@ def create(label="agent-os", ttl_minutes=DEFAULT_TTL_MINUTES):
     except Exception:
         pass
 
+    try:
+        # لازم قبل أي screenshot/click/type — تشغّل Xvfb/xfce4/x11vnc داخل
+        # الـsandbox، وإلا رجعت "empty display string" من الـdaemon.
+        started = sandbox.computer_use.start()
+        C.log(f"🖥️ سطح المكتب شغّال: {getattr(started, 'message', started)}")
+    except Exception as e:
+        C.log(f"⚠️ فشل تشغيل سطح المكتب (run_bash ما زال يعمل، لكن screenshot/click لا): {e}")
+
     C.log(f"🖥️ sandbox جديد: {sandbox.id} (TTL {ttl_minutes} دقيقة)")
     return sandbox.id
 
