@@ -625,9 +625,14 @@ class Brain:
 
         if removed:
             summary = f"[تمتلئ السياق - تم حذف {len(removed)} رسائل (~{removed_tokens} token)]"
+            # role="system" هنا كان يصطدم بالـsystem prompt الحقيقي: _call_ollama
+            # و_call_anthropic يبحثان عن role=="system" بحلقة بلا break، فآخر
+            # system يفوز — فيستبدل الملاحظة هذه الـsystem prompt الحقيقي كاملاً
+            # بعد أول قصّ سياق. role="user" لا يتعارض مع _build_messages() اللي
+            # يضع الـsystem prompt الحقيقي بمكان ثابت أول القائمة فقط.
             self.history = (
                 self.history[:keep_start]
-                + [{"role": "system", "content": summary}]
+                + [{"role": "user", "content": summary}]
                 + self.history[-keep_end:]
             )
 
