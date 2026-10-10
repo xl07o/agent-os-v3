@@ -1,6 +1,12 @@
 # Core
 python-dotenv>=1.0.0
 
+# Desktop app window (desktop_app.py — نافذة حقيقية بدل متصفح)
+pywebview>=4.4.0
+
+# Sandboxed computer-use (agent_os/computer_sandbox.py)
+daytona>=0.22.0
+
 # Web Search & Scraping
 duckduckgo-search>=4.1.0
 beautifulsoup4>=4.12.0

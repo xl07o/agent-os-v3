@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-title JARVIS — موظف الليل
+title Agent OS
 cd /d "%~dp0"
 
 echo.
 echo  ========================================
-echo    JARVIS — موظف الليل v3
+echo    Agent OS v3
 echo  ========================================
 echo.
 
@@ -17,8 +17,7 @@ if errorlevel 1 (
     timeout /t 3 /nobreak >nul
 )
 
-:: تشغيل JARVIS
 set PYTHONUTF8=1
-python jarvis.py
+python desktop_app.py
 
 pause

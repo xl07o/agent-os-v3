@@ -16,11 +16,35 @@
 | research | بحث، استطلاع، تصفح | `news_intel.py`, `agent_os/browser_agent.py`, `webtools.py` |
 | code/improve | تعديل كود، تحسين ذاتي | `agent_os/self_improve_engine.py`, `agent_os/goal_manager.py` |
 | build | مشاريع/شاشات/تطبيقات جديدة | `builders.py`, `agent_os/product_factory.py` |
-| trading | استراتيجيات تداول (بحث/باكتست فقط — **لا تنفيذ حقيقي بعد**) | `trading/strategy_agent.py` |
+| trading | استراتيجيات تداول (بحث/باكتست فقط — **لا تنفيذ حقيقي بعد، ولا يُفتح بدون نقاش مباشر مع المستخدم**) | `trading/strategy_agent.py` |
 | finance | دخل/مصروف الوكيل نفسه | `agent_os/finance_intel.py` |
 | security | صيد bounty | `agent_os/bounty_engine.py` |
 | chat | محادثة تفاعلية + اكتشاف نية تلقائي | `chat_cli.py` |
+| computer-use | يدين معزولتان (sandbox Daytona) | `agent_os/computer_sandbox.py`, مربوطة بـ`selfrunner.py` (أوامر `SANDBOX_*`) |
+| tasks | طابور مهام خلفية موثوق (retry) | `agent_os/task_queue.py` |
+| errors | تتبّع أخطاء مركزي بدل `except: pass` | `agent_os/error_tracker.py` |
+| web | واجهة ويب محلية (شات + حالة) ونافذة سطح مكتب | `agent_os/chat_api.py` (127.0.0.1:8788), `desktop_app.py` |
 | memory | ذاكرة + مرآة Obsidian | `memory_bank.py`, `obsidian_vault.py` |
+
+## نقطة الدخول الموحّدة (تجنّباً للتشتت)
+
+المشروع فيه عدة "عقول" بُنيت بجلسات مختلفة — هذا الجدول يحدد أيها الأساسي
+لكل غرض، باقي الملفات تبقى موجودة لكنها ليست الواجهة المُوصى بها:
+
+| الغرض | الملف الأساسي | ملاحظة |
+|---|---|---|
+| محادثة تفاعلية يدوية (طرفية) | `chat_cli.py` | يستخدم `jarvis_v2` (اسمه الداخلي "Hermes") لتنفيذ أي فعل حقيقي — بوابة صدق + أدوات حقيقية |
+| محادثة عبر متصفح/نافذة سطح مكتب | `agent_os/chat_api.py` + `desktop_app.py` | نفس عقل `brain.py`، جسر HTTP محلي فقط |
+| حلقة قرار مستقلة (خطوة بخطوة) | `selfrunner.py` | المحرك اللي فيه أوامر `CONTROL:`/`SANDBOX_*`/`STRATEGY` |
+| مهام مؤجلة/خلفية | `agent_os/task_queue.py` | طابور، لا تنفيذ فوري |
+| نواة حتمية مبسّطة للاختبار | `agent_os/agent_os.py` | توجيه بالكلمات المفتاحية، ليست المسار التفاعلي الرئيسي |
+
+**`jarvis.py`/`jarvis_app.py`/`jarvis_ui/` (التطبيق المستقل القديم بخلل النص
+المشوّه) حُذفوا بالكامل** — بديلهم `desktop_app.py` (نافذة pywebview حقيقية
+فوق `agent_os/chat_api.py` المُختبر، نفس تجربة "نافذة بدون متصفح/cmd").
+شغّله بـ`AGENT.vbs` (صامت، بدون نافذة أوامر) أو `start_agent.bat`.
+**`jarvis_v2/` شي مختلف تماماً — محرك Hermes الحقيقي المستخدم من
+`chat_cli.py`، يبقى كما هو، لا يُحذف.**
 
 ## القواعد
 
