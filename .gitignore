@@ -22,6 +22,7 @@ memory/
 data/
 projects/
 reports/
+obsidian_vault/
 *.log
 *.json
 !package.json
