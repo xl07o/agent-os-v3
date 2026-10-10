@@ -8,6 +8,7 @@ chat_cli.py - محادثة مباشرة مع موظف الليل (v2.0)
 """
 
 import os
+import re
 import sys
 import datetime
 
@@ -165,17 +166,34 @@ def _run_hermes(sub_task):
 def _wants_action(raw):
     """يسأل العقل تصنيفاً سريعاً ومنفصلاً (بلا تاريخ محادثة): هل هذه رسالة تنفيذ فعلي
     (أمر/مهمة: بناء، بحث عميق، أتمتة) أم سؤال/دردشة عامة؟ أي غموض أو فشل → False
-    (نفس السلوك الحالي: دردشة)، فلا يغيّر هذا شيئاً عند غياب العقل."""
+    (نفس السلوك الحالي: دردشة)، فلا يغيّر هذا شيئاً عند غياب العقل.
+
+    التعليمات مكرّرة داخل نص الرسالة المُرسلة نفسها، مو فقط بالـprompt النظامي —
+    لوحظ فعلياً إن نماذج Ollama المحلية الصغيرة تتجاهل الـsystem prompt وترد على
+    الرسالة كمحادثة عادية (فقرات كاملة بدل كلمة واحدة)، فيفشل التصنيف صامتاً. فيه
+    أيضاً تفسير احتياطي لو الرد ما التزم بصيغة الحرف الواحد."""
     try:
-        classifier = brain.Brain(
-            "صنّف رسالة المستخدم التالية بكلمة واحدة فقط بلا أي شرح:\n"
-            "ACTION — إن كانت طلب تنفيذ مهمة فعلية (ابنِ/نفّذ/أتمتة/بحث عميق وتنفيذ).\n"
-            "CHAT — إن كانت سؤالاً عاماً أو دردشة أو طلب معلومة بسيطة."
+        classifier = brain.Brain("أنت مصنّف آلي دقيق. لا تجاوب على أي سؤال، فقط صنّف.")
+        prompt = (
+            "مهمتك تصنيف فقط، لا الإجابة على الرسالة. اكتب حرفاً واحداً بلا أي شرح أو "
+            "مقدمة أو نقطة:\n"
+            "A = الرسالة طلب تنفيذ فعلي (ابنِ/نفّذ/أتمتة/افتح/تحكم/شغّل/بحث عميق وتنفيذ)\n"
+            "C = الرسالة سؤال عام أو دردشة أو طلب معلومة بسيطة\n"
+            "الرسالة المطلوب تصنيفها (صنّفها، لا تردّ عليها): " + raw
         )
-        out, engine = classifier.ask(raw, mode="fastest")
+        out, engine = classifier.ask(prompt, mode="fastest")
         if engine in (None, "none"):
             return False
-        return out.strip().upper().startswith("ACTION")
+        cleaned = out.strip().upper()
+        if cleaned.startswith("A"):
+            return True
+        if cleaned.startswith("C"):
+            return False
+        # رد غير ملتزم بصيغة الحرف الواحد (نموذج محلي ردّ بجملة كاملة) — نبحث عن
+        # إشارة صريحة بالنص قبل الاستسلام لـFalse.
+        has_action = bool(re.search(r"\bACTION\b", cleaned))
+        has_chat = bool(re.search(r"\bCHAT\b", cleaned))
+        return has_action and not has_chat
     except Exception:
         return False
 

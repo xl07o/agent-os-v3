@@ -26,10 +26,48 @@ _PLAN_PROMPT = (
     "لو المهمة تحتاج تصفح/نقر/كتابة على واجهة حقيقية (مو ملفات/أوامر)، استخدم sandbox_create "
     "أولاً، ثم sandbox_bash/click/type/screenshot بنفس sandbox_id، ثم sandbox_destroy بالنهاية — "
     "أبداً bash مباشرة لهذا النوع من المهام.\n"
+    "مهم جداً: لو خطوة تحتاج نتيجة خطوة سابقة (مثل sandbox_id اللي رجع من sandbox_create)، "
+    "اكتب {{{{step0.sandbox_id}}}} بدل تخمين أو كتابة قيمة حرفية — رقم الخطوة يبدأ من صفر "
+    "(أول خطوة بالخطة = step0). ممنوع تكتب \"sandbox_id\": \"sandbox_id\" أو أي قيمة مُخترَعة؛ "
+    "استخدم placeholder {{{{stepN.field}}}} دائماً لما القيمة غير معروفة إلا بعد التنفيذ.\n"
     "الأدوات: {tools}\n"
     "المهمة: قلب المهمة: {task}\n"
     "لا تكتب أي شيء غير JSON."
 )
+
+_REF_RE = re.compile(r"^\{\{step(\d+)\.(\w+)\}\}$")
+
+
+def _substitute_refs(args, step_outputs):
+    """يعوّض {{stepN.field}} بالقيمة الحقيقية من نتيجة خطوة سابقة ناجحة — بدل القيمة
+    الحرفية اللي قد يخترعها العقل (مثل "sandbox_id": "sandbox_id"). مرجع غير موجود
+    (خطوة لم تُنفَّذ بعد أو حقل غائب) يُترك كما هو، فيفشل التنفيذ بوضوح بدل قيمة مزيّفة."""
+    if not isinstance(args, dict):
+        return args
+    out = {}
+    for k, v in args.items():
+        if isinstance(v, str):
+            m = _REF_RE.match(v.strip())
+            if m:
+                idx, field = int(m.group(1)), m.group(2)
+                if 0 <= idx < len(step_outputs) and isinstance(step_outputs[idx], dict) \
+                        and field in step_outputs[idx]:
+                    out[k] = step_outputs[idx][field]
+                    continue
+            elif v.strip() == k:
+                # تخمين حرفي مُلاحَظ فعلياً: العقل يكتب "sandbox_id": "sandbox_id" بدل
+                # القيمة الحقيقية رغم تعليمات الـprompt. نعوّضه من آخر خطوة ناجحة فيها
+                # نفس الحقل — أضمن من ترك قيمة مزيّفة تفشل بصمت بخطأ غامض.
+                found = False
+                for prior in reversed(step_outputs):
+                    if isinstance(prior, dict) and prior.get("ok") and k in prior:
+                        out[k] = prior[k]
+                        found = True
+                        break
+                if found:
+                    continue
+        out[k] = v
+    return out
 
 
 def _strip_fences(text):
@@ -85,9 +123,10 @@ class Orchestrator:
 
         # 2) التنفيذ الحقيقي خطوة بخطوة
         results = []
+        step_outputs = []  # نتيجة كل خطوة الخام — تُستخدم لتعويض {{stepN.field}} بالخطوات اللاحقة
         for i, step in enumerate(steps[: config.MAX_STEPS], 1):
             tool = step.get("tool")
-            args = step.get("args") or {}
+            args = _substitute_refs(step.get("args") or {}, step_outputs)
             why = step.get("why") or ""
             print("\n[{i}/{n}] {tool} — {why}".format(i=i, n=min(len(steps), config.MAX_STEPS),
                                                       tool=tool, why=why[:100]))
@@ -95,6 +134,7 @@ class Orchestrator:
                 res = tool_run(tool, args, self.approver)
             except Exception as ex:
                 res = {"ok": False, "error": traceback.format_exc(limit=1).splitlines()[-1][:200]}
+            step_outputs.append(res)
             status = "ok" if res.get("ok") else "fail"
             evidence.append("step", tool, status,
                             note="%s. %s" % (why, res.get("note") or res.get("error") or ""),
