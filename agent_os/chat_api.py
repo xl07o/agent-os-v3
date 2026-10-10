@@ -165,8 +165,20 @@ def _wants_action(raw):
 
 
 def _run_hermes(task):
-    import chat_cli
-    return chat_cli._run_hermes(task)
+    """لا يستخدم chat_cli._run_hermes مباشرة — تلك تترك jarvis_v2 بوضع AUTORUN
+    الافتراضي "ask"، الذي يستدعي input() بـ_approver لكل خطوة حساسة. بخيط
+    سيرفر HTTP بلا stdin حقيقي، input() يُعلّق الخيط للأبد (الطلب لا يرد أبداً).
+    المستخدم أصلاً وافق على مستوى المهمة كاملة بزر "نفّذ" قبل الوصول هنا؛
+    كل قرار فرعي يبقى يُسجَّل بـapproval_center.py رغم الوضع التلقائي."""
+    from jarvis_v2 import cli as hermes_cli
+    from jarvis_v2 import config as hermes_config
+    from jarvis_v2 import orchestrator as hermes_orchestrator
+    hermes_config.AUTORUN = "allow"
+    try:
+        result = hermes_orchestrator.Orchestrator(approver=hermes_cli._approver).run(task)
+        return result.get("verdict") or "انتهت جلسة hermes لهذه المهمة."
+    except Exception as e:
+        return f"تعذّر تشغيل hermes: {str(e)[:150]}"
 
 
 def _status_data():
