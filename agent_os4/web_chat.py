@@ -16,6 +16,7 @@ HTTP ما يقدر يحجب خيط بـinput() — أي خطوة تحتاج مو
 import json
 import os
 import uuid
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -562,6 +563,22 @@ body{
 .panel.mini h2{font-size:.72rem}
 .panel.mini svg{width:100%;height:112px;display:block}
 
+/* ===== analytics row (heatmap / rankings / hourly / donut) ===== */
+.grid-analytics{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:0 20px 20px}
+@media(max-width:1100px){.grid-analytics{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.grid-analytics{grid-template-columns:1fr}}
+.heatmap-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;padding:14px 16px}
+@media(max-width:480px){.heatmap-grid{grid-template-columns:repeat(8,1fr)}}
+.heat-cell{aspect-ratio:1;border-radius:3px;background:var(--panel2)}
+.rank-row{display:flex;align-items:center;gap:8px;padding:6px 14px;font-size:.74rem}
+.rank-name{flex:0 0 96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c3cedd}
+.rank-bar-wrap{flex:1;height:7px;background:var(--dim);border-radius:4px;overflow:hidden}
+.rank-bar{height:100%;border-radius:4px;transition:width .4s}
+.rank-n{flex:none;color:var(--muted);font-variant-numeric:tabular-nums;width:20px;text-align:left}
+.donut-body{display:flex;align-items:center;gap:10px;padding:8px 14px 14px}
+.donut-body svg{width:90px;height:90px;flex:none}
+.donut-panel .legend span{font-size:.68rem}
+
 /* ===== gate (approval) panel ===== */
 .gate-body{padding:16px 16px 6px;display:flex;align-items:center;gap:14px}
 .gate-body svg.g{width:78px;height:78px;flex:none}
@@ -694,6 +711,28 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
         <div class="panel" id="feed">
           <div class="panel-head"><h2>سجل القرارات الحي</h2></div>
           <div class="terminal" id="feedList"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-analytics">
+      <div class="panel mini wide" id="heatmapPanel">
+        <div class="panel-head"><h2>نشاط آخر 48 ساعة</h2><span class="panel-tag">حقيقي، لا تلوين وهمي</span></div>
+        <div class="heatmap-grid" id="heatmapGrid"></div>
+      </div>
+      <div class="panel mini">
+        <div class="panel-head"><h2>أكثر البوتات نشاطاً</h2></div>
+        <div id="topBotsList"></div>
+      </div>
+      <div class="panel mini">
+        <div class="panel-head"><h2>القرارات حسب ساعة اليوم</h2></div>
+        <svg id="chartHourly" viewBox="0 0 280 112"></svg>
+      </div>
+      <div class="panel mini donut-panel">
+        <div class="panel-head"><h2>توزيع الحالة</h2></div>
+        <div class="donut-body">
+          <svg id="chartDonut" viewBox="0 0 140 140"></svg>
+          <div class="legend" id="donutLegend" style="border-top:none;padding:0;flex-direction:column;gap:6px"></div>
         </div>
       </div>
     </section>
@@ -925,6 +964,71 @@ function renderBottomCharts(d){
   syn.innerHTML = html;
 }
 
+function renderHeatmap(d){
+  const buckets = d.activity_heatmap || [];
+  const max = Math.max(1, ...buckets);
+  document.getElementById('heatmapGrid').innerHTML = buckets.map((v,i)=>{
+    const alpha = v===0 ? 0.07 : 0.22 + 0.78*(v/max);
+    const hoursAgo = buckets.length - 1 - i;
+    return '<div class="heat-cell" style="background:rgba(255,106,61,'+alpha.toFixed(2)+')" title="منذ '+hoursAgo+' ساعة: '+v+' '+(v===1?'قرار':'قرارات')+'"></div>';
+  }).join('');
+}
+
+function renderTopBots(d){
+  const usage = d.metrics.bot_usage || {};
+  const rows = d.bots.map(b=>({...b, n: usage[b.key]||0})).sort((a,b)=>b.n-a.n).slice(0,6);
+  const max = Math.max(1, ...rows.map(r=>r.n));
+  document.getElementById('topBotsList').innerHTML = rows.length ? rows.map(r=>
+    '<div class="rank-row"><span class="rank-name">'+escapeHtml(r.title_ar)+'</span>'
+    + '<div class="rank-bar-wrap"><div class="rank-bar" style="width:'+(100*r.n/max)+'%;background:'+(DIR_COLOR[r.directorate]||'#3b4961')+'"></div></div>'
+    + '<span class="rank-n">'+r.n+'</span></div>'
+  ).join('') : '<div class="empty">لا نشاط بعد</div>';
+}
+
+function renderHourChart(d){
+  const buckets = d.hour_histogram || [];
+  const svg = document.getElementById('chartHourly');
+  if(!buckets.length || buckets.every(v=>v===0)){
+    svg.innerHTML = '<text x="140" y="56" text-anchor="middle" font-size="10" fill="#687080">لا بيانات كافية بعد</text>';
+    return;
+  }
+  const W=280,H=112,max=Math.max(1,...buckets),barW=W/24;
+  let html='';
+  buckets.forEach((v,i)=>{
+    const h = v===0 ? 1 : (v/max)*(H-24);
+    html += '<rect x="'+(i*barW+1).toFixed(1)+'" y="'+(H-14-h).toFixed(1)+'" width="'+(barW-2).toFixed(1)+'" height="'+h.toFixed(1)+'" rx="1.5" fill="#22d3ee" opacity="'+(v===0?0.14:0.85)+'"><title>الساعة '+i+':00 — '+v+' '+(v===1?'قرار':'قرارات')+'</title></rect>';
+  });
+  html += '<text x="2" y="'+(H-2)+'" font-size="8" fill="#687080">00</text><text x="'+(W-16)+'" y="'+(H-2)+'" font-size="8" fill="#687080">23</text>';
+  svg.innerHTML = html;
+}
+
+function renderDonut(d){
+  const m = d.metrics, pendN = d.pending_approvals.length;
+  const approved = m.decisions.approved, rejected = m.decisions.rejected;
+  const total = approved + rejected + pendN;
+  const svg = document.getElementById('chartDonut');
+  if(total === 0){
+    svg.innerHTML = '<text x="70" y="74" text-anchor="middle" font-size="9" fill="#687080">لا بيانات بعد</text>';
+    document.getElementById('donutLegend').innerHTML = '';
+    return;
+  }
+  const segs = [['موافَق', approved, '#34d399'], ['مرفوض', rejected, '#f87171'], ['معلّق', pendN, '#fbbf24']];
+  const r=52, cx=70, cy=70, circ=2*Math.PI*r;
+  let offset=0, html='';
+  segs.forEach(([label,val,color])=>{
+    if(val===0) return;
+    const frac = val/total, len = frac*circ;
+    html += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="16" '
+      + 'stroke-dasharray="'+len.toFixed(1)+' '+(circ-len).toFixed(1)+'" stroke-dashoffset="'+(-offset).toFixed(1)+'" transform="rotate(-90 '+cx+' '+cy+')"/>';
+    offset += len;
+  });
+  html += '<text x="'+cx+'" y="'+(cy+4)+'" text-anchor="middle" font-size="15" fill="#eef1f5" font-weight="800">'+total+'</text>';
+  svg.innerHTML = html;
+  document.getElementById('donutLegend').innerHTML = segs.filter(s=>s[1]>0).map(([label,val,color])=>
+    '<span><i style="background:'+color+'"></i>'+label+' ('+val+')</span>'
+  ).join('');
+}
+
 function renderPending(d){
   document.getElementById('pendingBadge').textContent = d.pending_approvals.length;
   document.getElementById('pendingBadge').className = 'badge'+(d.pending_approvals.length?' has':'');
@@ -1033,6 +1137,10 @@ async function load(){
     renderVortexStats(d);
     renderGate(d);
     renderBottomCharts(d);
+    renderHeatmap(d);
+    renderTopBots(d);
+    renderHourChart(d);
+    renderDonut(d);
     renderPending(d);
     renderFeed(d, document.getElementById('search').value.trim().toLowerCase());
     pulse.className = 'pulse-dot';
@@ -1067,6 +1175,35 @@ def _rate_trend(full_ledger: list[dict], points: int = 40) -> list[int]:
     return trend[-points:]
 
 
+def _activity_heatmap(full_ledger: list[dict], hours: int = 48) -> list[int]:
+    """شبكة نشاط حقيقية — عدد القرارات الفعلية بكل ساعة من آخر 48 ساعة،
+    من الأقدم للأحدث. فاضية بصدق لو ما فيه نشاط، لا تلوين وهمي."""
+    buckets = [0] * hours
+    now = datetime.now()
+    for e in full_ledger:
+        try:
+            ts = datetime.strptime(e.get("at", ""), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        delta_hours = int((now - ts).total_seconds() // 3600)
+        if 0 <= delta_hours < hours:
+            buckets[hours - 1 - delta_hours] += 1
+    return buckets
+
+
+def _hour_of_day_histogram(full_ledger: list[dict]) -> list[int]:
+    """متى تصير القرارات عادة؟ توزيع حقيقي على 24 ساعة اليوم، مجمّع من
+    كل القرارات المتاحة (لا آخر 48 ساعة فقط) — نمط حقيقي لا تخمين."""
+    buckets = [0] * 24
+    for e in full_ledger:
+        try:
+            ts = datetime.strptime(e.get("at", ""), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        buckets[ts.hour] += 1
+    return buckets
+
+
 def _dashboard_data() -> dict:
     full_ledger = decision.ledger(limit=200)
     what_by_request: dict[str, str] = {
@@ -1091,6 +1228,8 @@ def _dashboard_data() -> dict:
         "bot_breakdown": evidence.audit()["by_actor"],
         "timeline": full_ledger[-60:],
         "rate_trend": _rate_trend(full_ledger),
+        "activity_heatmap": _activity_heatmap(full_ledger),
+        "hour_histogram": _hour_of_day_histogram(full_ledger),
     }
 
 
