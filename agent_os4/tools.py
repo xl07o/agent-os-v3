@@ -7,7 +7,7 @@ import os
 import shlex
 import subprocess
 
-from . import safety, sandbox
+from . import safety, sandbox, web
 
 WORKSPACE = os.path.join(os.path.dirname(__file__), "data", "workspace")
 
@@ -193,6 +193,16 @@ def sandbox_destroy(args: dict) -> dict:
     return {"ok": True, "note": "دُمِّر"}
 
 
+def web_search(args: dict) -> dict:
+    """بحث ويب حقيقي (DuckDuckGo) — قراءة فقط، راجع web.py لحواجزه."""
+    return web.search(args.get("query", ""), args.get("num", 6))
+
+
+def web_fetch(args: dict) -> dict:
+    """قراءة نص صفحة ويب عامة — GET فقط، لا عناوين داخلية، حجم محدود."""
+    return web.fetch(args.get("url", ""))
+
+
 REGISTRY = {
     "read_file": read_file,
     "write_file": write_file,
@@ -202,6 +212,8 @@ REGISTRY = {
     "sandbox_bash": sandbox_bash,
     "sandbox_destroy": sandbox_destroy,
     "browser_screenshot": browser_screenshot,
+    "web_search": web_search,
+    "web_fetch": web_fetch,
     "pc_read_file": pc_read_file,
     "pc_write_file": pc_write_file,
     "pc_list_dir": pc_list_dir,

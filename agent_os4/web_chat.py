@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import approval, bots, chatroom, decision, env, evidence, kernel, metrics, rooms, router, safety, spend, status
+from . import approval, bots, ceo, chatroom, decision, env, evidence, kernel, metrics, rooms, router, safety, self_improve, spend, status
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 _LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
@@ -266,6 +266,12 @@ const DIR_COLOR = {
 let selected = MONITOR;
 let roomsCache = [];
 let checkedBots = new Set();
+// بطاقات تنتظر قرارك (نفّذ/تجاهل، وافق/رفض) — التحديث الدوري كل 4 ثوانٍ
+// يعيد رسم المحادثة من السيرفر، فنعيد تركيبها بعده بدل ما تختفي قبل ما تقرر.
+const liveCards = [];
+function keepCard(el){ liveCards.push({room: selected, el: el}); }
+function dropCard(el){ const i = liveCards.findIndex(c=>c.el===el); if(i>=0) liveCards.splice(i,1); }
+function reattachCards(wrap){ liveCards.filter(c=>c.room===selected).forEach(c=>wrap.appendChild(c.el)); }
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -276,6 +282,12 @@ function roomColor(key){
   if(key==='executive') return '#fbbf24';
   const r = roomsCache.find(x=>x.key===key);
   return (r && DIR_COLOR[r.directorate]) || '#687080';
+}
+function speakerLabel(speaker, room){
+  if(speaker==='owner') return 'أنت';
+  if(speaker==='ceo') return 'الرئيس التنفيذي';
+  if(speaker==='executive') return 'الإدارة العليا';
+  return roomTitle(speaker || room);
 }
 function roomTitle(key){
   if(key===MONITOR) return 'مراقبة — كل الأقسام';
@@ -321,20 +333,23 @@ function renderHead(){
 
 function addConfirm(what, why, reqId, review){
   const wrap = document.getElementById('roomMsgs');
+  const block = document.createElement('div');
   const d = document.createElement('div');
   d.className = 'msg bot';
   d.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>يحتاج موافقتك: '+escapeHtml(what)+(why?' — '+escapeHtml(why):'');
-  wrap.appendChild(d);
+  block.appendChild(d);
   if(review){
     const rv = document.createElement('div');
     rv.className = 'msg review';
     rv.innerHTML = '<b>رأي المراجع المستقل:</b><br>'+escapeHtml(review);
-    wrap.appendChild(rv);
+    block.appendChild(rv);
   }
   const row = document.createElement('div');
   row.className = 'confirm-row';
-  row.innerHTML = '<button data-conf="1" data-id="'+reqId+'">نفّذ</button><button class="rej" data-conf="0" data-id="'+reqId+'">تجاهل</button>';
-  wrap.appendChild(row);
+  row.innerHTML = '<button data-conf="1" data-id="'+escapeHtml(reqId)+'">نفّذ</button><button class="rej" data-conf="0" data-id="'+escapeHtml(reqId)+'">تجاهل</button>';
+  block.appendChild(row);
+  wrap.appendChild(block);
+  keepCard(block);
   wrap.scrollTop = 1e9;
 }
 
@@ -345,7 +360,7 @@ async function loadThread(){
     const wrap = document.getElementById('roomMsgs');
     wrap.innerHTML = d.messages.length ? d.messages.map(m=>
       '<div class="mon-row"><span class="mon-room" style="color:'+roomColor(m.room)+';border-color:'+roomColor(m.room)+'66">'+escapeHtml(roomTitle(m.room))+'</span>'
-      + '<span class="mon-speaker">'+escapeHtml(m.speaker)+'</span>'
+      + '<span class="mon-speaker">'+escapeHtml(speakerLabel(m.speaker, m.room))+'</span>'
       + '<span class="mon-text">'+escapeHtml(m.text)+'</span>'
       + '<span class="mon-time">'+escapeHtml((m.at||'').split(' ')[1]||'')+'</span></div>'
     ).join('') : '<div class="empty">لا محادثات بعد بأي قسم</div>';
@@ -360,6 +375,7 @@ async function loadThread(){
       const color = roomColor(m.speaker);
       return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who" style="color:'+color+'">'+escapeHtml(roomTitle(m.speaker))+'</span>')+escapeHtml(m.text)+'</div>';
     }).join('') : '<div class="empty">ما فيه اجتماعات بعد — اختر الأقسام واكتب موضوعاً وابدأ</div>';
+    reattachCards(wrap);
     wrap.scrollTop = 1e9;
     return;
   }
@@ -368,9 +384,22 @@ async function loadThread(){
   const wrap = document.getElementById('roomMsgs');
   wrap.innerHTML = d.messages.length ? d.messages.map(m=>{
     const mine = m.speaker === 'owner';
-    return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who">'+escapeHtml(roomTitle(selected))+'</span>')+escapeHtml(m.text)+'</div>';
-  }).join('') : '<div class="empty">ابدأ المحادثة مع '+escapeHtml(roomTitle(selected))+'</div>';
+    return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who">'+escapeHtml(speakerLabel(m.speaker, selected))+'</span>')+escapeHtml(m.text)+'</div>';
+  }).join('') : '<div class="empty">'+(selected==='executive'?'اكتب للرئيس التنفيذي — هو يوزّع الشغل على الموظفين أو يقترح توظيف':'ابدأ المحادثة مع '+escapeHtml(roomTitle(selected)))+'</div>';
+  reattachCards(wrap);
   wrap.scrollTop = 1e9;
+}
+
+function addProposalCard(p){
+  const wrap = document.getElementById('roomMsgs');
+  const card = document.createElement('div'); card.className='outcome-card';
+  card.innerHTML = '<div class="oc-title">اقتراح من الرئيس التنفيذي ('+escapeHtml(p.kind)+')</div>'
+    + '<div class="oc-rec">'+escapeHtml(p.what)+'</div>'
+    + (p.diff ? '<pre class="oc-sup" style="white-space:pre-wrap;direction:ltr;text-align:left;max-height:260px;overflow:auto">'+escapeHtml(p.diff)+'</pre>' : '')
+    + (p.independent_review ? '<div class="oc-sup">رأي المراجع المستقل: '+escapeHtml(p.independent_review)+'</div>' : '')
+    + '<div class="btns"><button data-decide="1" data-id="'+escapeHtml(p.request_id)+'">وافق</button>'
+    + '<button class="rej" data-decide="0" data-id="'+escapeHtml(p.request_id)+'">رفض</button></div>';
+  wrap.appendChild(card); keepCard(card); wrap.scrollTop = 1e9;
 }
 
 async function selectRoom(key){
@@ -395,8 +424,9 @@ async function sendMsg(){
     if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id, d.independent_review); }
     else{
       const b = document.createElement('div'); b.className='msg bot';
-      b.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
+      b.innerHTML = '<span class="who">'+escapeHtml(selected==='executive'?'الرئيس التنفيذي':roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
       wrap.appendChild(b); wrap.scrollTop = 1e9;
+      (d.proposals||[]).forEach(addProposalCard);
     }
   }catch(e){
     const b = document.createElement('div'); b.className='msg bot'; b.textContent='خطأ: '+e.message;
@@ -433,6 +463,7 @@ function addMeetingOutcome(result){
       + '<div class="btns"><button data-decide="1" data-id="'+p.request_id+'">وافق</button>'
       + '<button class="rej" data-decide="0" data-id="'+p.request_id+'">رفض</button></div>';
     wrap.appendChild(card);
+    keepCard(card);
   });
   wrap.scrollTop = 1e9;
 }
@@ -475,7 +506,9 @@ document.getElementById('roomMsgs').addEventListener('click', async e=>{
   const confBtn = e.target.closest('button[data-conf]');
   const decideBtn = e.target.closest('button[data-decide]');
   if(confBtn){
-    confBtn.parentElement.remove();
+    const block = confBtn.closest('.confirm-row').parentElement;
+    dropCard(block);
+    confBtn.closest('.confirm-row').remove();
     const r = await fetch('/api/room/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,request_id:confBtn.dataset.id,approved:confBtn.dataset.conf==='1'})});
     const d = await r.json();
     const wrap = document.getElementById('roomMsgs');
@@ -490,11 +523,14 @@ document.getElementById('roomMsgs').addEventListener('click', async e=>{
   }
   if(decideBtn){
     const card = decideBtn.closest('.outcome-card');
+    dropCard(card);
     const approved = decideBtn.dataset.decide === '1';
     const r = await fetch('/api/dashboard/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:decideBtn.dataset.id,approved:approved})});
     const d = await r.json();
-    card.innerHTML = '<div class="oc-rec">'+(approved?'تمت الموافقة':'تم الرفض')+'</div>'
-      + (d.note ? '<div class="oc-sup">'+escapeHtml(d.note)+'</div>' : '');
+    card.innerHTML = '<div class="oc-rec">'+(d.ok===false ? escapeHtml(d.error||'تعذّر') : (approved?'تمت الموافقة':'تم الرفض'))+'</div>'
+      + (d.note ? '<div class="oc-sup">'+escapeHtml(d.note)+'</div>' : '')
+      + (d.hired ? '<div class="oc-sup">انضم للفريق: '+escapeHtml(roomTitle(d.hired)||d.hired)+' — غرفته ظهرت بالقائمة</div>' : '');
+    loadRoomList();
   }
 });
 
@@ -641,6 +677,9 @@ body{
 .bc-row.err{color:var(--red)}
 .bc-note{font-size:.7rem;color:var(--muted);margin-top:8px;text-align:left}
 .bc-note a{color:var(--ember)}
+.bc-ceo{font-size:.82rem;line-height:1.7;padding:4px 2px 8px;border-bottom:1px solid var(--border);white-space:pre-wrap}
+.bc-ceo b{color:var(--ember)}
+.bc-prop{font-size:.74rem;color:var(--amber);padding:5px 2px;border-bottom:1px solid var(--border)}
 
 /* ===== agent ledger row ===== */
 .ledger-row{display:flex;gap:10px;padding:14px 20px;overflow-x:auto}
@@ -792,8 +831,8 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
     <div class="status-strip" id="statusStrip"></div>
 
     <section class="broadcast-bar">
-      <input id="bcInput" placeholder="أمر عام لكل الأقسام — يوصل لكل بوت بغرفته الخاصة ويشتغل عليه…" autocomplete="off">
-      <button id="bcSend">أرسل للكل</button>
+      <input id="bcInput" placeholder="اكتب للـCEO — هو يوزّع على الموظف المناسب، أو يقترح توظيف واحد جديد…" autocomplete="off">
+      <button id="bcSend">أرسل للـCEO</button>
     </section>
     <div class="bc-result hidden" id="bcResult"></div>
 
@@ -1255,18 +1294,23 @@ async function sendBroadcast(){
   if(!msg) return;
   const btn = document.getElementById('bcSend');
   const box = document.getElementById('bcResult');
-  btn.disabled = true; btn.textContent = 'جاري الإرسال لكل الأقسام…';
+  btn.disabled = true; btn.textContent = 'الرئيس التنفيذي يشتغل…';
   box.className = 'hidden';
   try{
-    const r = await fetch('/api/rooms/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    const r = await fetch('/api/ceo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
     const d = await r.json();
     if(d.error){
       box.innerHTML = '<div class="bc-row err">'+escapeHtml(d.error)+'</div>';
     }else{
-      box.innerHTML = d.results.map(x=>{
-        const working = !!x.needs_confirmation;
-        return '<div class="bc-row '+(working?'warn':'ok')+'"><b>'+escapeHtml(x.title_ar)+'</b><span>'+(working?'يحتاج موافقتك':'ردّ')+'</span></div>';
-      }).join('') + '<div class="bc-note">راجع كل الردود الكاملة وافتح أي موافقة معلّقة بـ<a href="/rooms">غرف الأقسام ←</a></div>';
+      box.innerHTML = '<div class="bc-ceo"><b>الرئيس التنفيذي:</b> '+escapeHtml(d.reply||'')+'</div>'
+        + (d.notes||[]).map(n=>'<div class="bc-prop">'+escapeHtml(n)+'</div>').join('')
+        + (d.assignments||[]).map(x=>{
+          const working = !!x.needs_confirmation;
+          return '<div class="bc-row '+(working?'warn':'ok')+'"><b>'+escapeHtml(x.title_ar)+'</b><span>'+(working?'يحتاج موافقتك':'ردّ')+'</span></div>';
+        }).join('')
+        + (d.proposals||[]).map(p=>'<div class="bc-prop">بانتظار موافقتك ('+escapeHtml(p.kind)+'): '+escapeHtml(p.what)+'</div>').join('')
+        + (d.code_proposal && !d.code_proposal.ok ? '<div class="bc-row err">تعديل الكود ما اكتمل: '+escapeHtml(String(d.code_proposal.error||'').slice(0,300))+'</div>' : '')
+        + '<div class="bc-note">الردود الكاملة بـ<a href="/rooms">غرف الأقسام ←</a> — والموافقات بالطلبات المعلّقة تحت</div>';
       inp.value = '';
     }
     box.className = 'bc-result';
@@ -1274,7 +1318,7 @@ async function sendBroadcast(){
     box.innerHTML = '<div class="bc-row err">تعذّر الاتصال: '+escapeHtml(e.message)+'</div>';
     box.className = 'bc-result';
   }
-  btn.disabled = false; btn.textContent = 'أرسل للكل';
+  btn.disabled = false; btn.textContent = 'أرسل للـCEO';
   load();
 }
 document.getElementById('bcSend').addEventListener('click', sendBroadcast);
@@ -1401,6 +1445,18 @@ def _handle_dashboard_decide(body: dict) -> dict:
     ok = (decision.approve if approved else decision.reject)(request_id, decided_by="owner")
     if not ok:
         return {"ok": False, "error": "طلب غير موجود أو تم حسمه مسبقاً"}
+
+    ceo_result = ceo.apply_decision(request_id, approved, _ceo_dispatch)
+    if ceo_result is not None:
+        return {"ok": True, **ceo_result}
+
+    if request_id in self_improve._load_proposals():
+        if not approved:
+            return {"ok": True, "applied": False, "note": "رُفض تعديل الكود — ما تغيّر شي"}
+        applied = self_improve.apply(request_id)
+        note = ("طُبّق التعديل (فيه نسخة احتياطية) — يتفعّل بعد إعادة تشغيل web_chat"
+                if applied.get("ok") else f"ما تطبّق: {applied.get('error')}")
+        return {"ok": True, "applied": bool(applied.get("ok")), "result": applied, "note": note}
 
     # لو الطلب جاء من حلقة kernel.run_task (مثل شات أو بوت) فيه حالة
     # معلّقة محفوظة — نكمل التنفيذ الفعلي. لو جاء من مسار آخر (مثل
@@ -1531,6 +1587,57 @@ def _format_room_result(room: str, result: dict) -> dict:
     return {"reply": reply}
 
 
+def _run_in_room(room: str, message: str, speaker: str = "owner") -> dict:
+    """رسالة لموظف بغرفته — من صاحب الشركة أو من الـCEO (speaker)."""
+    rooms.post(room, speaker, message)
+    bot = bots.BOTS[room]
+    result = kernel.run_task(
+        message, persona=bot["persona"], allowed_tools=bot["allowed_tools"],
+        proposed_by=room, interactive=False,
+    )
+    return _format_room_result(room, result)
+
+
+def _ceo_dispatch(room: str, task: str) -> dict:
+    return _run_in_room(room, task, speaker="ceo")
+
+
+def _ceo_proposals(resp: dict) -> list[dict]:
+    """طلبات الـCEO اللي تنتظر موافقتك (توظيف/أداة/كود) بشكل موحّد للواجهة."""
+    out = []
+    for key, label in (("hire_proposal", "توظيف"), ("grant_proposal", "أدوات")):
+        p = resp.get(key)
+        if p:
+            out.append({"kind": label, "request_id": p["request_id"], "what": p["what"],
+                        "independent_review": p.get("independent_review")})
+    code = resp.get("code_proposal")
+    if code and code.get("ok"):
+        out.append({"kind": "كود", "request_id": code["request_id"], "what": "تعديل كود agent_os4 (نجح باختبار الساندبوكس)",
+                    "diff": code.get("diff", "")[:4000], "independent_review": code.get("independent_review")})
+    return out
+
+
+def _handle_ceo(body: dict) -> dict:
+    message = str(body.get("message", "")).strip()
+    if not message:
+        return {"error": "رسالة فاضية"}
+    resp = ceo.handle(message, _ceo_dispatch)
+    resp["proposals"] = _ceo_proposals(resp)
+    return resp
+
+
+def _ceo_summary_text(resp: dict) -> str:
+    lines = [resp.get("reply") or ""]
+    for a in resp.get("assignments", []):
+        state = "يحتاج موافقتك" if a.get("needs_confirmation") else "ردّ"
+        lines.append(f"← {a['title_ar']}: {state}")
+    lines += resp.get("notes", [])
+    code = resp.get("code_proposal")
+    if code and not code.get("ok"):
+        lines.append(f"تعديل الكود ما اكتمل ({code.get('stage')}): {str(code.get('error'))[:300]}")
+    return "\n".join(x for x in lines if x)
+
+
 def _handle_room_send(body: dict) -> dict:
     room = str(body.get("room", "")).strip()
     message = str(body.get("message", "")).strip()
@@ -1538,19 +1645,13 @@ def _handle_room_send(body: dict) -> dict:
         return {"error": "غرفة غير معروفة"}
     if not message:
         return {"error": "رسالة فاضية"}
-
-    rooms.post(room, "owner", message)
     if room == rooms.EXECUTIVE:
-        # غرفة الإدارة العليا = نفس مسار الشات العام، بلا شخصية بوت
-        # محدّدة ولا حصر أدوات — مكتب صاحب النظام نفسه، لا مديرية فرعية.
-        result = kernel.run_task(message, proposed_by="owner", interactive=False)
-    else:
-        bot = bots.BOTS[room]
-        result = kernel.run_task(
-            message, persona=bot["persona"], allowed_tools=bot["allowed_tools"],
-            proposed_by=room, interactive=False,
-        )
-    return _format_room_result(room, result)
+        # مكتب الإدارة العليا = الـCEO: يوزّع أو يوظّف، راجع ceo.py
+        resp = _handle_ceo({"message": message})
+        if resp.get("error"):
+            return resp
+        return {"reply": _ceo_summary_text(resp), "proposals": resp["proposals"]}
+    return _run_in_room(room, message)
 
 
 def _handle_room_confirm(body: dict) -> dict:
@@ -1741,6 +1842,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_room_send(body))
             elif path == "/api/room/confirm":
                 self._send_json(200, _handle_room_confirm(body))
+            elif path == "/api/ceo":
+                self._send_json(200, _handle_ceo(body))
             elif path == "/api/rooms/broadcast":
                 self._send_json(200, _handle_broadcast(body))
             elif path == "/api/meeting/start":

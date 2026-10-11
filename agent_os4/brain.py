@@ -52,6 +52,9 @@ def _gemini(prompt: str) -> str:
 _CLAUDE_TIMEOUT = 300  # Opus يفكّر قبل ما يرد — 30 ثانية ما تكفي
 _CLAUDE_MAX_TOKENS = 16000
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# يُلحق بالرد لو انقطع عند الحد الأقصى — اللي يولّد كود يفحصه ويرفض
+# الرد كامل بدل ما يحفظ ملفاً مبتوراً.
+TRUNCATED_MARKER = "[تنبيه: الرد انقطع عند الحد الأقصى للطول]"
 
 
 class Refused(Exception):
@@ -94,7 +97,7 @@ def _anthropic(prompt: str) -> str:
     if not text:
         raise RuntimeError(f"Claude رجّع رد بلا نص (stop_reason={response.stop_reason})")
     if response.stop_reason == "max_tokens":
-        text += "\n\n[تنبيه: الرد انقطع عند الحد الأقصى للطول]"
+        text += "\n\n" + TRUNCATED_MARKER
     return text
 
 

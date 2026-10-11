@@ -34,6 +34,7 @@ _SUBMODULES = [
     "obsidian", "tools", "status", "housekeeping", "self_improve",
     "roles", "decision", "bots", "chatroom", "skills", "evidence",
     "router", "metrics", "web_chat", "deploy", "kernel", "cli",
+    "rooms", "spend", "web", "learning", "ceo",
 ]
 
 
