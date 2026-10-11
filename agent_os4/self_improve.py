@@ -36,7 +36,7 @@ _SUBMODULES = [
     "roles", "decision", "bots", "chatroom", "skills", "evidence",
     "router", "metrics", "web_chat", "deploy", "kernel", "cli",
     "rooms", "spend", "web", "learning", "ceo", "market", "widgets", "selftest",
-    "agent_memory", "agent_skills", "reflect", "textnorm", "sessions",
+    "agent_memory", "agent_skills", "reflect", "textnorm", "sessions", "scheduler",
 ]
 
 

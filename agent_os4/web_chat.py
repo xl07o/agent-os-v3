@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, sessions, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
+from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, scheduler, sessions, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 _LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
@@ -289,6 +289,7 @@ function speakerLabel(speaker, room){
   if(speaker==='ceo') return 'الرئيس التنفيذي';
   if(speaker==='executive') return 'الإدارة العليا';
   if(speaker==='chief_decision_officer') return 'مدير القرارات';
+  if(speaker==='scheduler') return 'المهام المجدولة';
   return roomTitle(speaker || room);
 }
 function roomTitle(key){
@@ -721,6 +722,27 @@ body{
 .bempty{font-size:.7rem;color:var(--muted);padding:6px 0}
 .berr{font-size:.66rem;color:var(--red);margin-top:4px}
 
+
+/* ===== scheduled jobs (scheduler.py) ===== */
+.sched-row{padding:0 20px 14px}
+.sched-form{display:grid;grid-template-columns:1.1fr .9fr 1fr 2.2fr auto;gap:8px;padding:12px 15px;border-bottom:1px solid var(--border)}
+@media (max-width:1000px){.sched-form{grid-template-columns:1fr}}
+.sched-form input,.sched-form select{background:var(--panel2);border:1px solid var(--border);color:var(--txt);border-radius:9px;padding:7px 10px;font:inherit;font-size:.74rem}
+.sched-form button{background:var(--cyan);color:#03141a;border:none;border-radius:9px;padding:7px 14px;font:inherit;font-weight:800;font-size:.74rem;cursor:pointer}
+.sched-note{font-size:.66rem;color:var(--muted);padding:6px 15px 0}
+.sched-note.err{color:var(--red)}
+.sched-list{padding:10px 15px 14px;display:flex;flex-direction:column;gap:8px}
+.sjob{background:var(--panel2);border:1px solid var(--border);border-radius:11px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:6px}
+.sjob.off{opacity:.55}
+.sjob .sj-title{font-weight:800;font-size:.8rem}
+.sjob .sj-meta{font-size:.64rem;color:var(--muted);margin-top:2px}
+.sjob .sj-meta b{color:var(--cyan);font-weight:700;direction:ltr;unicode-bidi:isolate}
+.sjob .sj-prompt{font-size:.7rem;margin-top:4px;unicode-bidi:plaintext}
+.sjob .sj-last{grid-column:1/-1;font-size:.66rem;color:var(--muted);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:6px;max-height:90px;overflow:auto;unicode-bidi:plaintext}
+.sjob .sj-btns{display:flex;gap:6px;align-items:flex-start}
+.sjob .sj-btns button{background:transparent;border:1px solid var(--border);color:var(--txt);border-radius:8px;padding:3px 9px;font:inherit;font-size:.66rem;cursor:pointer}
+.sjob .sj-btns button.del:hover{border-color:var(--red);color:var(--red)}
+
 /* ===== market widgets (widgets.py / market.py) ===== */
 .widgets-row{padding:0 20px 14px}
 .widget-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 15px;border-bottom:1px solid var(--border)}
@@ -914,6 +936,21 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
           <div class="bcol" id="bMemory"></div>
           <div class="bcol" id="bSkills"></div>
         </div>
+      </div>
+    </section>
+
+    <section class="sched-row">
+      <div class="panel">
+        <div class="panel-head"><h2>مهام مجدولة — تشتغل لحالها (أسلوب Hermes cron)</h2><span class="panel-tag">أي خطوة تحتاج موافقة تنتظرك</span></div>
+        <div class="sched-form">
+          <input id="sjTitle" placeholder="العنوان: تقرير الأسهم الصباحي">
+          <input id="sjSchedule" placeholder="daily 09:00" style="direction:ltr">
+          <select id="sjTarget"></select>
+          <input id="sjPrompt" placeholder="وش يسوي كل مرة: لخّص لي حركة أرامكو والبتكوين بالأرقام">
+          <button id="sjAdd">جدول</button>
+        </div>
+        <div class="sched-note" id="sjNote">الصيغ: 2h · 1d · daily 09:00 · weekly sun 09:00 · once 2026-10-20 09:00 — بتوقيت جهازك. أو قل للرئيس التنفيذي: "كل يوم الساعة 9 عطني تقرير".</div>
+        <div class="sched-list" id="sjList"></div>
       </div>
     </section>
 
@@ -1417,6 +1454,52 @@ async function sendBroadcast(){
 document.getElementById('bcSend').addEventListener('click', sendBroadcast);
 document.getElementById('bcInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendBroadcast(); });
 
+/* ===== scheduled jobs ===== */
+function fmtWhen(ts){ return ts ? new Date(ts*1000).toLocaleString('ar-SA',{weekday:'short',hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}) : '—'; }
+let schedTargets = [];
+async function loadSchedule(){
+  try{
+    const d = await (await fetch('/api/schedule')).json();
+    const sel = document.getElementById('sjTarget');
+    if(JSON.stringify(schedTargets) !== JSON.stringify(d.targets)){
+      schedTargets = d.targets;
+      sel.innerHTML = d.targets.map(t=>'<option value="'+escapeHtml(t.key)+'">'+escapeHtml(t.title_ar)+'</option>').join('');
+    }
+    const title = k => (schedTargets.find(t=>t.key===k)||{}).title_ar || k;
+    document.getElementById('sjList').innerHTML = d.jobs.length ? d.jobs.map(j=>
+      '<div class="sjob'+(j.enabled?'':' off')+'"><div><div class="sj-title">'+escapeHtml(j.title)+'</div>'
+      + '<div class="sj-meta"><b>'+escapeHtml(j.schedule)+'</b> · ينفّذها: '+escapeHtml(title(j.target))
+      + ' · التشغيل الجاي: '+(j.enabled?escapeHtml(fmtWhen(j.next_run)):'موقوفة')+' · مرات التشغيل: '+(j.runs||0)
+      + (j.created_by==='ceo'?' · اقترحها الرئيس التنفيذي بموافقتك':'')+'</div>'
+      + '<div class="sj-prompt">'+escapeHtml(j.prompt)+'</div></div>'
+      + '<div class="sj-btns"><button data-sjrun="'+j.id+'">شغّل الآن</button><button data-sjtog="'+j.id+'" data-en="'+(j.enabled?0:1)+'">'+(j.enabled?'إيقاف':'تشغيل')+'</button><button class="del" data-sjdel="'+j.id+'">حذف</button></div>'
+      + (j.last_result ? '<div class="sj-last">آخر تشغيل '+escapeHtml(j.last_run||'')+':\\n'+escapeHtml(j.last_result)+'</div>' : '')
+      + '</div>').join('') : '<div class="empty">ما فيه مهام مجدولة بعد.</div>';
+  }catch(e){}
+}
+async function schedPost(action, payload){
+  return (await fetch('/api/schedule/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).json();
+}
+document.getElementById('sjAdd').addEventListener('click', async ()=>{
+  const note = document.getElementById('sjNote');
+  const d = await schedPost('add', {title: document.getElementById('sjTitle').value.trim(), schedule: document.getElementById('sjSchedule').value.trim(),
+    target: document.getElementById('sjTarget').value, prompt: document.getElementById('sjPrompt').value.trim()});
+  if(!d.ok){ note.textContent = d.error; note.className = 'sched-note err'; return; }
+  note.textContent = 'انجدولت — التشغيل الجاي: '+fmtWhen(d.job.next_run); note.className = 'sched-note';
+  ['sjTitle','sjSchedule','sjPrompt'].forEach(id=>document.getElementById(id).value='');
+  loadSchedule();
+});
+document.getElementById('sjList').addEventListener('click', async e=>{
+  const run = e.target.closest('button[data-sjrun]'), tog = e.target.closest('button[data-sjtog]'), del = e.target.closest('button[data-sjdel]');
+  if(run){ run.disabled = true; run.textContent = 'يشتغل…'; await schedPost('run', {id: run.dataset.sjrun}); }
+  else if(tog){ await schedPost('toggle', {id: tog.dataset.sjtog, enabled: tog.dataset.en==='1'}); }
+  else if(del){ if(!confirm('حذف المهمة المجدولة؟')) return; await schedPost('remove', {id: del.dataset.sjdel}); }
+  else return;
+  loadSchedule(); load();
+});
+loadSchedule();
+setInterval(loadSchedule, 20000);
+
 /* ===== agent brain (agent_memory.py + agent_skills.py) ===== */
 function memCol(key, title, hint, st){
   const pct = Math.min(100, Math.round(st.chars / st.limit * 100));
@@ -1755,6 +1838,49 @@ def _handle_budget(body: dict, is_local: bool) -> dict:
     return {"ok": True, "budget_usd": value, "claude_spend": spend.summary()}
 
 
+def _execute_job(job: dict) -> str:
+    """تشغيل مهمة مجدولة — نفس مسار أي طلب (الرئيس التنفيذي أو غرفة موظف)،
+    غير تفاعلي: أي خطوة تحتاج موافقة تبقى معلّقة لين ترجع."""
+    prompt = f"(مهمة مجدولة: {job['title']})\n{job['prompt']}"
+    if job["target"] == "ceo":
+        resp = ceo.handle(prompt, _ceo_dispatch, speaker="scheduler")
+        lines = [_ceo_summary_text(resp)]
+        for a in resp.get("assignments", []):
+            lines.append(f"— {a['title_ar']}: " + (a.get("reply") or f"يحتاج موافقتك: {a.get('what', '')}")[:600])
+        return "\n".join(lines)
+    result = _run_in_room(job["target"], prompt, speaker="scheduler")
+    return result.get("reply") or f"يحتاج موافقتك: {result.get('what', '')}"
+
+
+def _schedule_data() -> dict:
+    targets = [{"key": "ceo", "title_ar": "الرئيس التنفيذي"}] + [
+        {"key": b["key"], "title_ar": b["title_ar"]} for b in bots.list_bots()]
+    return {"jobs": scheduler.list_jobs(), "targets": targets}
+
+
+def _handle_schedule(action: str, body: dict) -> dict:
+    job_id = str(body.get("id", ""))
+    if action == "add":
+        try:
+            job = scheduler.add({k: body.get(k) for k in ("schedule", "prompt", "target", "title")}, ceo.job_targets())
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "job": job}
+    if action == "remove":
+        return {"ok": scheduler.remove(job_id)}
+    if action == "toggle":
+        return {"ok": scheduler.set_enabled(job_id, bool(body.get("enabled")))}
+    if action == "run":
+        results = scheduler.run_due(_execute_job, notify=_notify_job, only_id=job_id)
+        return {"ok": bool(results), "results": results}
+    return {"ok": False, "error": "إجراء غير معروف"}
+
+
+def _notify_job(job: dict, text: str) -> None:
+    """توصيل نتيجة المهمة المجدولة خارج اللوحة (تيليجرام لو مفعّل)."""
+    return None
+
+
 def _brain_state() -> dict:
     return {"memory": agent_memory.usage("memory"), "user": agent_memory.usage("user"),
             "skills": agent_skills.list_skills()}
@@ -1880,7 +2006,8 @@ def _ceo_dispatch(room: str, task: str) -> dict:
 def _ceo_proposals(resp: dict) -> list[dict]:
     """طلبات الـCEO اللي تنتظر موافقتك (توظيف/أداة/كود) بشكل موحّد للواجهة."""
     out = []
-    for key, label in (("hire_proposal", "توظيف"), ("grant_proposal", "أدوات"), ("widget_proposal", "ودجت")):
+    for key, label in (("hire_proposal", "توظيف"), ("grant_proposal", "أدوات"), ("widget_proposal", "ودجت"),
+                       ("job_proposal", "جدولة")):
         p = resp.get(key)
         if p:
             out.append({"kind": label, "request_id": p["request_id"], "what": p["what"],
@@ -2071,6 +2198,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, _meeting_data())
         elif path == "/api/widgets":
             self._send_json(200, _widgets_data())
+        elif path == "/api/schedule":
+            self._send_json(200, _schedule_data())
         elif path == "/api/brain-state":
             self._send_json(200, _brain_state())
         elif path == "/api/skill":
@@ -2124,6 +2253,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_room_send(body))
             elif path == "/api/room/confirm":
                 self._send_json(200, _handle_room_confirm(body))
+            elif path.startswith("/api/schedule/"):
+                self._send_json(200, _handle_schedule(path.rsplit("/", 1)[-1], body))
             elif path == "/api/memory":
                 self._send_json(200, _handle_memory_edit(body))
             elif path == "/api/skills/delete":
@@ -2155,6 +2286,7 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[web_chat] تعذّرت فهرسة المحادثات القديمة: {e}")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
+    scheduler.start_background(_execute_job, notify=lambda job, text: _notify_job(job, text))
     print(f"[web_chat] يستمع على http://{HOST}:{PORT}  (شات: /  —  لوحة التحكم: /dashboard)")
     if safety.pc_access_enabled():
         print(f"[web_chat] ⚠️  وضع الوصول الكامل للجهاز مفعّل — الجذر: {os.environ.get('OS4_PC_ROOT') or os.getcwd()}")

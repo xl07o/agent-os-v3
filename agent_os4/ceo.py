@@ -19,9 +19,10 @@
 import json
 import os
 import re
+import time
 
-from . import (agent_memory, agent_skills, bots, brain, decision, learning, reflect, rooms, self_improve, sessions,
-               spend, web, widgets)
+from . import (agent_memory, agent_skills, bots, brain, decision, learning, reflect, rooms, scheduler, self_improve,
+               sessions, spend, web, widgets)
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _PENDING_FILE = os.path.join(_DATA_DIR, "ceo_pending.json")
@@ -41,6 +42,7 @@ _SPEC = """ردّك JSON فقط، بلا أي نص خارجه، بهذا الش�
  "hire": null,
  "grant": null,
  "widget": null,
+ "schedule": null,
  "code_change": null}}
 
 - assignments: صفر إلى {max_assign} موظفين من القائمة أعلاه فقط.
@@ -49,6 +51,8 @@ _SPEC = """ردّك JSON فقط، بلا أي نص خارجه، بهذا الش�
 - widget (لو صاحب الشركة يبي يتابع شي بلوحة التحكم): {{"type": "stock", "title": "...", "config": {{"symbol": "AAPL", "range": "1d"}}}}
   أو {{"type": "watchlist", "config": {{"symbols": ["2222.SR", "BTC-USD"]}}}} أو {{"type": "portfolio", "config": {{"holdings": [{{"symbol": "AAPL", "qty": 10}}]}}}}
   المدى من: {ranges}. رموز Yahoo Finance: تداول السعودي بـ .SR (أرامكو 2222.SR)، العملات الرقمية BTC-USD. المحفظة فقط لو صاحب الشركة ذكر الكميات بنفسه — لا تخترعها.
+- schedule (لو صاحب الشركة يبي شي يتكرر لحاله، مثل "كل يوم الساعة 9"): {{"schedule": "daily 09:00", "target": "ceo أو مفتاح موظف", "title": "...", "prompt": "المهمة اللي تنفّذ كل مرة"}}
+  صيغ الجدولة: 2h ، 1d ، daily 09:00 ، weekly sun 09:00 ، once 2026-10-20 09:00 (أقل مدة 15 دقيقة).
 - code_change (لو الطلب يحتاج تعديل كود agent_os4 نفسه): {{"file": "اسم_الملف.py", "goal": "وش يتغيّر بالضبط"}}"""
 
 
@@ -83,7 +87,7 @@ def _conversation_block() -> str:
     recent = rooms.history(rooms.EXECUTIVE, limit=_RECENT_TURNS + 1)[:-1]
     if not recent:
         return ""
-    label = {"owner": "صاحب الشركة", "ceo": "أنت"}
+    label = {"owner": "صاحب الشركة", "ceo": "أنت", "scheduler": "مهمة مجدولة"}
     return "آخر المحادثة بالمكتب:\n" + "\n".join(
         f"[{label.get(m['speaker'], m['speaker'])}] {m['text'][:500]}" for m in recent
     )
@@ -158,6 +162,12 @@ def parse_plan(text: str) -> dict | None:
         if error:
             notes.append(f"اقتراح الودجت ما انقبل: {error}")
 
+    job = None
+    if data.get("schedule"):
+        job, error = scheduler.validate(data["schedule"], job_targets())
+        if error:
+            notes.append(f"اقتراح الجدولة ما انقبل: {error}")
+
     code_change = None
     if isinstance(data.get("code_change"), dict):
         c = data["code_change"]
@@ -172,7 +182,7 @@ def parse_plan(text: str) -> dict | None:
 
     return {
         "reply": str(data.get("reply", "")).strip(),
-        "assignments": assignments, "hire": hire, "grant": grant, "widget": widget,
+        "assignments": assignments, "hire": hire, "grant": grant, "widget": widget, "schedule": job,
         "code_change": code_change, "notes": notes,
     }
 
@@ -193,6 +203,21 @@ def _propose_grant(grant: dict) -> dict:
     proposal = decision.propose(what=what, why=grant["why"], proposed_by="ceo")
     pending = _load_pending()
     pending[proposal["request_id"]] = {"type": "grant", "spec": grant}
+    _save_pending(pending)
+    return {"request_id": proposal["request_id"], "what": what, "independent_review": proposal["independent_review"]}
+
+
+def job_targets() -> set[str]:
+    return {"ceo"} | set(bots.BOTS)
+
+
+def _propose_job(job: dict) -> dict:
+    who = "الرئيس التنفيذي" if job["target"] == "ceo" else bots.BOTS[job["target"]]["title_ar"]
+    what = f"مهمة مجدولة ({job['schedule']}) — {job['title']} — ينفّذها: {who}"
+    proposal = decision.propose(what=what, why=f"كل تشغيل: {job['prompt']}\n\nكل تشغيل يكلّف استدعاءات Claude من سقفك الشهري.",
+                                proposed_by="ceo")
+    pending = _load_pending()
+    pending[proposal["request_id"]] = {"type": "job", "spec": {k: job[k] for k in ("schedule", "prompt", "target", "title")}}
     _save_pending(pending)
     return {"request_id": proposal["request_id"], "what": what, "independent_review": proposal["independent_review"]}
 
@@ -240,13 +265,13 @@ def propose_code_change(file: str, goal: str) -> dict:
     return self_improve.propose(file, code, why=f"طلب من الـCEO: {goal}", proposed_by="code_bot")
 
 
-def handle(message: str, dispatch) -> dict:
+def handle(message: str, dispatch, speaker: str = "owner") -> dict:
     """dispatch(room, task) يشغّل المهمة بغرفة الموظف ويرجّع النتيجة
     المنسّقة (يمرّره web_chat.py — نفس مسار أي رسالة لغرفة)."""
     message = (message or "").strip()
     if not message:
         return {"error": "رسالة فاضية"}
-    rooms.post(rooms.EXECUTIVE, "owner", message)
+    rooms.post(rooms.EXECUTIVE, speaker, message)
 
     raw = brain.ask(_build_prompt(message))
     plan = parse_plan(raw)
@@ -277,6 +302,9 @@ def handle(message: str, dispatch) -> dict:
     if plan["widget"]:
         response["widget_proposal"] = _propose_widget(plan["widget"])
         rooms.post(rooms.EXECUTIVE, "ceo", f"اقترحت: {response['widget_proposal']['what']} — بانتظار موافقتك.")
+    if plan["schedule"]:
+        response["job_proposal"] = _propose_job(plan["schedule"])
+        rooms.post(rooms.EXECUTIVE, "ceo", f"اقترحت: {response['job_proposal']['what']} — بانتظار موافقتك.")
     if plan["code_change"]:
         cc = plan["code_change"]
         rooms.post("code_bot", "ceo", f"عدّل {cc['file']}: {cc['goal']}")
@@ -335,6 +363,18 @@ def apply_decision(request_id: str, approved: bool, dispatch) -> dict | None:
         return None
     _save_pending(pending)
     spec = action["spec"]
+
+    if action["type"] == "job":
+        if not approved:
+            rooms.post(rooms.EXECUTIVE, "ceo", f"تمام، ما جدولنا: {spec['title']}.")
+            return {"applied": False}
+        try:
+            job = scheduler.add(spec, job_targets(), created_by="ceo")
+        except ValueError as e:
+            return {"applied": False, "note": str(e)}
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(job["next_run"]))
+        rooms.post(rooms.EXECUTIVE, "ceo", f"جدولت: {spec['title']} — أول تشغيل {when}.")
+        return {"applied": True, "job": job, "note": f"انجدولت — أول تشغيل {when}"}
 
     if action["type"] == "widget":
         if not approved:
