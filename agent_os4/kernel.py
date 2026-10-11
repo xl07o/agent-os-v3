@@ -16,24 +16,38 @@ import json
 import os
 import re
 
-from . import approval, brain, decision, evidence, memory, obsidian, tools
+from . import approval, brain, decision, evidence, memory, obsidian, safety, tools
 
-_PLAN_PROMPT = """أنت وكيل تنفيذ حقيقي. لديك هذه الأدوات فقط:
+_PLAN_PROMPT_BASE = """أنت وكيل تنفيذ حقيقي. لديك هذه الأدوات فقط:
 - read_file(path), write_file(path, content), list_workspace()
 - run_command(command)
 - sandbox_create(label), sandbox_bash(sandbox_id, command), sandbox_destroy(sandbox_id)
-- browser_screenshot(url, filename) — لقطة شاشة فقط، بدون أي تفاعل مع الصفحة
+- browser_screenshot(url, filename) — لقطة شاشة فقط، بدون أي تفاعل مع الصفحة{pc_tools}
 
 ردّك JSON فقط بهذا الشكل، بلا أي نص خارجي:
-{{"steps": [{{"tool": "...", "args": {{...}}, "why": "..."}}]}}
+{{{{"steps": [{{{{"tool": "...", "args": {{{{...}}}}, "why": "..."}}}}]}}}}
 
-لو المهمة محادثة عادية بلا حاجة لأي أداة، أرجع: {{"steps": []}}
+لو المهمة محادثة عادية بلا حاجة لأي أداة، أرجع: {{{{"steps": []}}}}
 
-المهمة: {task}"""
+المهمة: {{task}}"""
 
-# أي أداة لها أثر فعلي أو تخرج للإنترنت (كتابة/تنفيذ/sandbox/تصفح) —
-# تحتاج موافقة. القراءة المحلية فقط (read_file, list_workspace) تلقائية.
-NEEDS_APPROVAL = {"write_file", "run_command", "sandbox_create", "sandbox_bash", "browser_screenshot"}
+_PC_TOOLS_TEXT = """
+- pc_read_file(path), pc_write_file(path, content), pc_list_dir(path) — على جهاز المستخدم الحقيقي فعلياً، لا مجلد عمل محصور
+- pc_run_command(command, cwd) — أمر shell حقيقي على جهاز المستخدم"""
+
+
+def _plan_prompt() -> str:
+    pc_tools = _PC_TOOLS_TEXT if safety.pc_access_enabled() else ""
+    return _PLAN_PROMPT_BASE.format(pc_tools=pc_tools)
+
+
+# أي أداة لها أثر فعلي أو تخرج للإنترنت (كتابة/تنفيذ/sandbox/تصفح/وصول
+# جهاز حقيقي) — تحتاج موافقة. القراءة المحلية المحصورة فقط تلقائية —
+# حتى قراءة PC تحتاج موافقة، لأنها تكشف ملفات حقيقية حساسة محتملة.
+NEEDS_APPROVAL = {
+    "write_file", "run_command", "sandbox_create", "sandbox_bash", "browser_screenshot",
+    "pc_read_file", "pc_write_file", "pc_list_dir", "pc_run_command",
+}
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _PENDING_FILE = os.path.join(_DATA_DIR, "pending_tasks.json")
@@ -165,7 +179,7 @@ def run_task(
     راجع resume_task().
     """
     prompt_task = f"{persona}\n\nالمهمة: {task}" if persona else task
-    plan_text = brain.ask(_PLAN_PROMPT.format(task=prompt_task))
+    plan_text = brain.ask(_plan_prompt().format(task=prompt_task))
     steps = _parse_plan(plan_text)
 
     if not steps:

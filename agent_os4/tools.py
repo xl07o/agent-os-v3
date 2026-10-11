@@ -11,6 +11,16 @@ from . import safety, sandbox
 
 WORKSPACE = os.path.join(os.path.dirname(__file__), "data", "workspace")
 
+# وضع الوصول الكامل للجهاز — يعمل على الجهاز الحقيقي فعلياً، لا مجلد
+# عمل محصور. معطّل افتراضياً (راجع safety.pc_access_enabled). الجذر
+# الافتراضي: المجلد اللي شُغِّل منه agent_os4، لا مجلد ثابت — نفس
+# منطق OpenCode/Claude Code (يعمل حيث استُدعي، لا بمجلد خاص مفروض).
+PC_ROOT = os.environ.get("OS4_PC_ROOT") or os.getcwd()
+
+
+def _pc_full_path(path: str) -> str:
+    return path if os.path.isabs(path) else os.path.join(PC_ROOT, path)
+
 
 def read_file(args: dict) -> dict:
     path = os.path.join(WORKSPACE, args.get("path", ""))
@@ -76,6 +86,77 @@ def browser_screenshot(args: dict) -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+def pc_read_file(args: dict) -> dict:
+    """قراءة من الجهاز الحقيقي فعلياً — لا مجلد عمل محصور. معطّلة
+    افتراضياً، وتحتاج موافقة (راجع kernel.NEEDS_APPROVAL) لأنها تكشف
+    محتوى ملفات حقيقية حساسة محتملة، بعكس read_file المحصورة."""
+    if not safety.pc_access_enabled():
+        return {"ok": False, "error": "وضع الوصول الكامل للجهاز معطّل — أضف OS4_ALLOW_PC_ACCESS=1 لملف .env لتفعيله"}
+    full = _pc_full_path(args.get("path", ""))
+    ok, reason = safety.validate_pc_path(full)
+    if not ok:
+        return {"ok": False, "error": reason}
+    if not os.path.isfile(full):
+        return {"ok": False, "error": f"لا يوجد ملف: {full}"}
+    try:
+        with open(full, "r", encoding="utf-8", errors="replace") as f:
+            return {"ok": True, "content": f.read()}
+    except PermissionError as e:
+        return {"ok": False, "error": f"صلاحيات مرفوضة: {e}"}
+
+
+def pc_write_file(args: dict) -> dict:
+    """كتابة على الجهاز الحقيقي فعلياً. معطّلة افتراضياً، تحتاج موافقة
+    صريحة على كل كتابة — لا استثناء."""
+    if not safety.pc_access_enabled():
+        return {"ok": False, "error": "وضع الوصول الكامل للجهاز معطّل — أضف OS4_ALLOW_PC_ACCESS=1 لملف .env لتفعيله"}
+    full = _pc_full_path(args.get("path", ""))
+    ok, reason = safety.validate_pc_path(full)
+    if not ok:
+        return {"ok": False, "error": reason}
+    try:
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(args.get("content", ""))
+        return {"ok": True, "path": full, "note": f"كُتب على جهازك فعلياً: {full}"}
+    except PermissionError as e:
+        return {"ok": False, "error": f"صلاحيات مرفوضة: {e}"}
+
+
+def pc_list_dir(args: dict) -> dict:
+    """قراءة فقط — يسرد محتوى مجلد حقيقي على جهازك (لا الملفات نفسها)."""
+    if not safety.pc_access_enabled():
+        return {"ok": False, "error": "وضع الوصول الكامل للجهاز معطّل — أضف OS4_ALLOW_PC_ACCESS=1 لملف .env لتفعيله"}
+    full = _pc_full_path(args.get("path", "."))
+    if not os.path.isdir(full):
+        return {"ok": False, "error": f"لا يوجد مجلد: {full}"}
+    try:
+        return {"ok": True, "path": full, "entries": sorted(os.listdir(full))}
+    except PermissionError as e:
+        return {"ok": False, "error": f"صلاحيات مرفوضة: {e}"}
+
+
+def pc_run_command(args: dict) -> dict:
+    """تنفيذ أمر حقيقي على جهازك عبر shell — لا قائمة بيضاء ضيقة، فقط
+    حظر كوارث معروفة (safety.is_safe_pc_command) + موافقتك الصريحة
+    على نص الأمر الكامل قبل أي تنفيذ. معطّلة افتراضياً."""
+    if not safety.pc_access_enabled():
+        return {"ok": False, "error": "وضع الوصول الكامل للجهاز معطّل — أضف OS4_ALLOW_PC_ACCESS=1 لملف .env لتفعيله"}
+    cmd = args.get("command", "")
+    ok, reason = safety.is_safe_pc_command(cmd)
+    if not ok:
+        return {"ok": False, "error": reason}
+    cwd = _pc_full_path(args.get("cwd", "")) if args.get("cwd") else PC_ROOT
+    try:
+        r = subprocess.run(
+            cmd, shell=True, cwd=cwd,
+            capture_output=True, text=True, timeout=120,
+        )
+        return {"ok": r.returncode == 0, "stdout": r.stdout[:6000], "stderr": r.stderr[:3000], "returncode": r.returncode}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "انتهت المهلة (120 ثانية)"}
+
+
 def run_command(args: dict) -> dict:
     cmd = args.get("command", "")
     ok, reason = safety.is_safe_command(cmd)
@@ -121,6 +202,10 @@ REGISTRY = {
     "sandbox_bash": sandbox_bash,
     "sandbox_destroy": sandbox_destroy,
     "browser_screenshot": browser_screenshot,
+    "pc_read_file": pc_read_file,
+    "pc_write_file": pc_write_file,
+    "pc_list_dir": pc_list_dir,
+    "pc_run_command": pc_run_command,
 }
 
 
