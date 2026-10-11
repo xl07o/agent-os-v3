@@ -16,7 +16,8 @@ import json
 import os
 import re
 
-from . import approval, brain, decision, evidence, learning, memory, obsidian, safety, tools
+from . import (agent_memory, agent_skills, approval, brain, decision, evidence, learning, memory, obsidian,
+               reflect, safety, tools)
 
 _PLAN_PROMPT_BASE = """أنت وكيل تنفيذ حقيقي. لديك هذه الأدوات فقط:
 - read_file(path), write_file(path, content), list_workspace()
@@ -143,6 +144,7 @@ def _finalize(task: str, results: list[dict], proposed_by: str) -> dict:
     reply = _synthesize(task, results)
     if reply:
         outcome["reply"] = reply
+    reflect.after_task_async(task, outcome, proposed_by)
     return outcome
 
 
@@ -222,6 +224,13 @@ def run_task(
             experience = ""
         if experience:
             persona = f"{persona}\n\n{experience}" if persona else experience
+    # ذاكرة Hermes المنسّقة + أقرب المهارات المجرّبة — راجع agent_memory/agent_skills
+    try:
+        recall = "\n\n".join(b for b in (agent_memory.prompt_block(), agent_skills.prompt_block(task)) if b)
+    except Exception:  # noqa: BLE001
+        recall = ""
+    if recall:
+        persona = f"{persona}\n\n{recall}" if persona else recall
     prompt_task = f"{persona}\n\nالمهمة: {task}" if persona else task
     plan_text = brain.ask(_plan_prompt().format(task=prompt_task))
     steps = _parse_plan(plan_text)

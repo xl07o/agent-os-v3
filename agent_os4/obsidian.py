@@ -13,15 +13,16 @@ Obsidian لكل مهمة تنتهي، proposed_by أي بوت كان) — هذا
 """
 
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from obsidian_vault import FOLDERS, VAULT_DIR, write_note  # noqa: E402,F401
 
+from . import textnorm  # noqa: E402
+
 
 def _words(text: str) -> set[str]:
-    return set(re.findall(r"\w+", text.lower()))
+    return textnorm.words(text, min_len=2)
 
 
 def search(query: str, limit: int = 5) -> list[dict]:

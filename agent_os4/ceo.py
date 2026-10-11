@@ -20,7 +20,7 @@ import json
 import os
 import re
 
-from . import bots, brain, decision, learning, rooms, self_improve, spend, web, widgets
+from . import agent_memory, agent_skills, bots, brain, decision, learning, reflect, rooms, self_improve, spend, web, widgets
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _PENDING_FILE = os.path.join(_DATA_DIR, "ceo_pending.json")
@@ -82,8 +82,9 @@ def _build_prompt(message: str) -> str:
     )
     experience = learning.context_for("ceo", message)
     parts = [persona, "الموظفون الحاليون:\n" + _roster_text()]
-    if experience:
-        parts.append(experience)
+    for block in (agent_memory.prompt_block(), agent_skills.prompt_block(message), experience):
+        if block:
+            parts.append(block)
     parts += [spec, f"طلب صاحب الشركة: {message}"]
     return "\n\n".join(parts)
 
@@ -235,6 +236,7 @@ def handle(message: str, dispatch) -> dict:
     if plan is None:
         reply = raw.strip()
         rooms.post(rooms.EXECUTIVE, "ceo", reply)
+        reflect.after_task_async(message, {"verdict": reply[:1500]}, "ceo")
         return {"reply": reply, "assignments": [], "notes": ["رد الـCEO ما كان خطة منظمة — عرضته كرد عادي"]}
 
     lines = [plan["reply"] or "تمام."]
@@ -267,6 +269,10 @@ def handle(message: str, dispatch) -> dict:
             rooms.post("code_bot", "code_bot", f"التعديل نجح باختبار الساندبوكس — الفرق الكامل بانتظار موافقتك ({result['request_id']}).")
         else:
             rooms.post("code_bot", "code_bot", f"ما قدرت أقترح التعديل ({result.get('stage')}): {str(result.get('error'))[:500]}")
+    reflect.after_task_async(message, {
+        "verdict": "\n".join(lines),
+        "reply": "\n".join(f"{a['title_ar']}: {a.get('reply') or a.get('what', '')}" for a in response["assignments"])[:1500],
+    }, "ceo")
     return response
 
 

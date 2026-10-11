@@ -21,7 +21,7 @@ from unittest import mock
 def _isolate(tmp: str) -> None:
     import obsidian_vault
 
-    from . import approval, bots, ceo, decision, kernel, memory, obsidian, rooms, spend, tools, widgets
+    from . import agent_memory, agent_skills, approval, bots, ceo, decision, kernel, memory, obsidian, rooms, spend, tools, widgets
     approval._FILE = os.path.join(tmp, "approvals.json")
     decision._LEDGER_FILE = os.path.join(tmp, "ledger.json")
     kernel._PENDING_FILE = os.path.join(tmp, "pending.json")
@@ -31,6 +31,8 @@ def _isolate(tmp: str) -> None:
     ceo._PENDING_FILE = os.path.join(tmp, "ceo_pending.json")
     spend._FILE = os.path.join(tmp, "spend.json")
     widgets._FILE = os.path.join(tmp, "widgets.json")
+    agent_memory._DIR = os.path.join(tmp, "agent_memory")
+    agent_skills._DIR = os.path.join(tmp, "agent_skills")
     tools.WORKSPACE = os.path.join(tmp, "workspace")
     obsidian_vault.VAULT_DIR = os.path.join(tmp, "vault")
     obsidian.VAULT_DIR = os.path.join(tmp, "vault")

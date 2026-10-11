@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import approval, bots, ceo, chatroom, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
+from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 _LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
@@ -696,6 +696,31 @@ body{
 .bc-ceo b{color:var(--ember)}
 .bc-prop{font-size:.74rem;color:var(--amber);padding:5px 2px;border-bottom:1px solid var(--border)}
 
+
+/* ===== agent brain: memory + skills (Hermes-style learning loop) ===== */
+.brain-row{padding:0 20px 14px}
+.brain-grid{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:12px;padding:14px 15px}
+@media (max-width:1000px){.brain-grid{grid-template-columns:1fr}}
+.bcol{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:11px 13px;min-height:160px}
+.bcol h3{font-size:.78rem;font-weight:800;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.bcol h3 small{font-size:.62rem;color:var(--muted);font-weight:600;direction:ltr}
+.bbar{height:4px;border-radius:99px;background:var(--dim);overflow:hidden;margin-bottom:8px}
+.bbar i{display:block;height:100%;background:var(--violet)}
+.bentry{display:flex;gap:6px;align-items:flex-start;font-size:.72rem;line-height:1.55;padding:5px 0;border-bottom:1px solid var(--border)}
+.bentry span{flex:1;unicode-bidi:plaintext}
+.bentry button,.bskill button.bx{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem;line-height:1}
+.bentry button:hover,.bskill button.bx:hover{color:var(--red)}
+.badd{display:flex;gap:6px;margin-top:8px}
+.badd input{flex:1;background:var(--panel);border:1px solid var(--border);color:var(--txt);border-radius:8px;padding:5px 8px;font:inherit;font-size:.7rem}
+.badd button{background:var(--violet);color:#120a24;border:none;border-radius:8px;padding:5px 10px;font:inherit;font-weight:800;font-size:.7rem;cursor:pointer}
+.bskill{padding:6px 0;border-bottom:1px solid var(--border)}
+.bskill .bs-head{display:flex;gap:6px;align-items:center;cursor:pointer}
+.bskill .bs-name{font-size:.74rem;font-weight:800;direction:ltr;flex:1;text-align:right}
+.bskill .bs-desc{font-size:.66rem;color:var(--muted);margin-top:2px;unicode-bidi:plaintext}
+.bskill pre{white-space:pre-wrap;font-size:.66rem;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px;margin-top:6px;max-height:240px;overflow:auto;unicode-bidi:plaintext}
+.bempty{font-size:.7rem;color:var(--muted);padding:6px 0}
+.berr{font-size:.66rem;color:var(--red);margin-top:4px}
+
 /* ===== market widgets (widgets.py / market.py) ===== */
 .widgets-row{padding:0 20px 14px}
 .widget-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 15px;border-bottom:1px solid var(--border)}
@@ -880,6 +905,17 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
     <div class="bc-result hidden" id="bcResult"></div>
 
     <section class="ledger-row" id="ledgerRow"></section>
+
+    <section class="brain-row">
+      <div class="panel">
+        <div class="panel-head"><h2>ذاكرة الوكيل ومهاراته — يتعلّم من الشغل (أسلوب Hermes)</h2><span class="panel-tag">تشوف كل شي وتحذف أي شي</span></div>
+        <div class="brain-grid">
+          <div class="bcol" id="bUser"></div>
+          <div class="bcol" id="bMemory"></div>
+          <div class="bcol" id="bSkills"></div>
+        </div>
+      </div>
+    </section>
 
     <section class="widgets-row">
       <div class="panel">
@@ -1381,6 +1417,59 @@ async function sendBroadcast(){
 document.getElementById('bcSend').addEventListener('click', sendBroadcast);
 document.getElementById('bcInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendBroadcast(); });
 
+/* ===== agent brain (agent_memory.py + agent_skills.py) ===== */
+function memCol(key, title, hint, st){
+  const pct = Math.min(100, Math.round(st.chars / st.limit * 100));
+  return '<h3>'+title+'<small>'+st.chars+'/'+st.limit+'</small></h3><div class="bbar"><i style="width:'+pct+'%"></i></div>'
+    + (st.entries.length ? st.entries.map(e=>'<div class="bentry"><span>'+escapeHtml(e)+'</span><button data-mrm="'+key+'" data-old="'+escapeHtml(e)+'" title="احذف">×</button></div>').join('')
+                         : '<div class="bempty">'+hint+'</div>')
+    + '<div class="badd"><input data-madd-in="'+key+'" placeholder="أضف بنفسك…"><button data-madd="'+key+'">أضف</button></div><div class="berr" data-merr="'+key+'"></div>';
+}
+async function loadBrain(){
+  try{
+    const d = await (await fetch('/api/brain-state')).json();
+    document.getElementById('bUser').innerHTML = memCol('user', 'ملفك (USER.md)', 'لسا ما عرف عنك شي — يتعلّم من طلباتك', d.user);
+    document.getElementById('bMemory').innerHTML = memCol('memory', 'ملاحظاته (MEMORY.md)', 'ما فيه ملاحظات بعد', d.memory);
+    const open = new Set([...document.querySelectorAll('.bskill pre')].map(p=>p.dataset.for));
+    document.getElementById('bSkills').innerHTML = '<h3>مهاراته (SKILL.md)<small>'+d.skills.length+'</small></h3>'
+      + (d.skills.length ? d.skills.map(sk=>'<div class="bskill"><div class="bs-head" data-skill="'+escapeHtml(sk.name)+'">'
+          + '<span class="bs-name">'+escapeHtml(sk.name)+'</span><button class="bx" data-skrm="'+escapeHtml(sk.name)+'" title="احذف">×</button></div>'
+          + '<div class="bs-desc">'+escapeHtml(sk.description)+' · '+escapeHtml(sk.updated_at)+'</div></div>').join('')
+        : '<div class="bempty">يصنع مهارة بنفسه لما يخلص مهمة متعددة الخطوات بنجاح وتكون تتكرر.</div>');
+    open.forEach(n=>{ const h = document.querySelector('.bs-head[data-skill="'+CSS.escape(n)+'"]'); if(h) toggleSkill(h); });
+  }catch(e){}
+}
+async function toggleSkill(head){
+  const box = head.parentElement, name = head.dataset.skill;
+  const existing = box.querySelector('pre');
+  if(existing){ existing.remove(); return; }
+  const sk = await (await fetch('/api/skill?name='+encodeURIComponent(name))).json();
+  const pre = document.createElement('pre'); pre.dataset.for = name; pre.textContent = sk.body || sk.error || '';
+  box.appendChild(pre);
+}
+document.querySelector('.brain-grid').addEventListener('click', async e=>{
+  const rm = e.target.closest('button[data-mrm]'), add = e.target.closest('button[data-madd]');
+  const skrm = e.target.closest('button[data-skrm]'), head = e.target.closest('.bs-head');
+  if(rm){
+    await fetch('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'remove',target:rm.dataset.mrm,old_text:rm.dataset.old})});
+    loadBrain();
+  }else if(add){
+    const key = add.dataset.madd, inp = document.querySelector('input[data-madd-in="'+key+'"]');
+    if(!inp.value.trim()) return;
+    const d = await (await fetch('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op:'add',target:key,content:inp.value.trim()})})).json();
+    if(!d.ok){ document.querySelector('[data-merr="'+key+'"]').textContent = d.error; return; }
+    loadBrain();
+  }else if(skrm){
+    if(!confirm('حذف المهارة '+skrm.dataset.skrm+'؟')) return;
+    await fetch('/api/skills/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:skrm.dataset.skrm})});
+    loadBrain();
+  }else if(head){
+    toggleSkill(head);
+  }
+});
+loadBrain();
+setInterval(loadBrain, 15000);
+
 /* ===== market widgets ===== */
 const W_HINTS = {
   stock: ['AAPL  أو  2222.SR  أو  BTC-USD', 'أو اكتب للرئيس التنفيذي فوق: "ابي أتابع أرامكو والبتكوين" — يقترح الودجت وأنت توافق.'],
@@ -1664,6 +1753,23 @@ def _handle_budget(body: dict, is_local: bool) -> dict:
         decided_by="owner-dashboard-loopback",
     )
     return {"ok": True, "budget_usd": value, "claude_spend": spend.summary()}
+
+
+def _brain_state() -> dict:
+    return {"memory": agent_memory.usage("memory"), "user": agent_memory.usage("user"),
+            "skills": agent_skills.list_skills()}
+
+
+def _handle_memory_edit(body: dict) -> dict:
+    op = {k: body.get(k) for k in ("op", "target", "content", "old_text") if body.get(k) is not None}
+    result = agent_memory.apply([op], source="owner")
+    return {**result, **_brain_state()} if result.get("ok") else result
+
+
+def _handle_skill_delete(body: dict) -> dict:
+    if not agent_skills.delete(str(body.get("name", ""))):
+        return {"ok": False, "error": "مهارة غير موجودة"}
+    return {"ok": True}
 
 
 def _widgets_data() -> dict:
@@ -1965,6 +2071,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, _meeting_data())
         elif path == "/api/widgets":
             self._send_json(200, _widgets_data())
+        elif path == "/api/brain-state":
+            self._send_json(200, _brain_state())
+        elif path == "/api/skill":
+            skill = agent_skills.get((qs.get("name") or [""])[0])
+            self._send_json(200 if skill else 404, skill or {"error": "مهارة غير موجودة"})
         else:
             self.send_response(404)
             self.end_headers()
@@ -2013,6 +2124,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_room_send(body))
             elif path == "/api/room/confirm":
                 self._send_json(200, _handle_room_confirm(body))
+            elif path == "/api/memory":
+                self._send_json(200, _handle_memory_edit(body))
+            elif path == "/api/skills/delete":
+                self._send_json(200, _handle_skill_delete(body))
             elif path == "/api/widgets/add":
                 self._send_json(200, _handle_widget_add(body))
             elif path == "/api/widgets/remove":

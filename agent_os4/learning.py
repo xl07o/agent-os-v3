@@ -13,7 +13,7 @@ Obsidian وينتهي أثره. ما فيه أوزان مخفية تتغيّر.
 import os
 import re
 
-from . import obsidian
+from . import obsidian, textnorm
 
 LESSON_PREFIX = "درس"
 KNOWLEDGE_PREFIX = "معرفة"
@@ -21,7 +21,7 @@ _FOLDER = "wiki"
 
 
 def _words(text: str) -> set[str]:
-    return set(re.findall(r"\w+", text.lower()))
+    return textnorm.words(text, min_len=2)
 
 
 def _employee_notes(employee: str) -> list[tuple[str, str, float]]:
