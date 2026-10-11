@@ -17,10 +17,11 @@ import json
 import os
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import approval, bots, decision, env, evidence, kernel, metrics, router, safety, status
+from . import approval, bots, decision, env, evidence, kernel, metrics, rooms, router, safety, status
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 
@@ -66,7 +67,7 @@ button:disabled{background:#334155;color:#94a3b8;cursor:not-allowed;filter:none}
 </style>
 </head>
 <body>
-<header><span class="brand">agent_os4 <span class="dot"></span></span><a href="/dashboard">لوحة التحكم ←</a></header>
+<header><span class="brand">agent_os4 <span class="dot"></span></span><span style="display:flex;gap:8px"><a href="/rooms">غرف الأقسام</a><a href="/dashboard">لوحة التحكم ←</a></span></header>
 <div class="chat">
   <div id="msgs"></div>
   <div class="irow">
@@ -115,6 +116,248 @@ async function confirmAction(reqId,approved){
   document.getElementById('btn').disabled=false;
 }
 document.getElementById('inp').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+</script>
+</body>
+</html>"""
+
+
+_ROOMS_HTML = """<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>غرف الأقسام — agent_os4</title>
+<style>
+:root{
+  --bg:#060708; --panel:#0b0d10; --panel2:#0e1114; --border:#1e2228;
+  --txt:#eef1f5; --muted:#687080; --dim:#2c323c;
+  --cyan:#22d3ee; --ember:#ff6a3d; --green:#34d399; --red:#f87171; --amber:#fbbf24; --violet:#a78bfa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--dim);border-radius:8px}
+
+.shell{display:flex;min-height:100vh}
+.sidebar{width:54px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 0;background:var(--panel);border-left:1px solid var(--border)}
+.sidebar .brand{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--ember),#b3291f);color:#1a0804;font-weight:800;font-size:.68rem;margin-bottom:14px}
+.navicon{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--muted);text-decoration:none}
+.navicon svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.navicon:hover{color:var(--ember);background:rgba(255,106,61,.08)}
+.navicon.on{color:var(--ember);background:rgba(255,106,61,.1)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+header.top{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--border);background:rgba(10,11,13,.85)}
+header.top h1{font-size:.95rem;font-weight:700}
+header.top small{color:var(--muted);font-size:.72rem;display:block;margin-top:2px}
+
+.rooms-shell{flex:1;display:flex;min-height:0}
+.room-list{width:270px;flex:none;border-left:1px solid var(--border);overflow-y:auto;padding:8px}
+.room-item{display:flex;align-items:center;gap:9px;padding:10px 10px;border-radius:10px;cursor:pointer;margin-bottom:3px}
+.room-item:hover{background:var(--panel2)}
+.room-item.sel{background:var(--panel2);box-shadow:0 0 0 1px var(--ember) inset}
+.room-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.room-item .ri-name{font-size:.82rem;font-weight:700}
+.room-item .ri-prev{font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+.room-item .ri-time{font-size:.6rem;color:var(--dim);margin-right:auto}
+
+.room-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.room-head{padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.room-head b{font-size:.9rem}
+.room-head small{color:var(--muted);font-size:.72rem}
+.room-msgs{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:9px}
+.msg{padding:9px 13px;border-radius:11px;max-width:72%;white-space:pre-wrap;line-height:1.55;font-size:.86rem}
+.msg.user{background:linear-gradient(135deg,#2563eb,#1d4ed8);align-self:flex-start}
+.msg.bot{background:var(--panel);align-self:flex-end;border:1px solid var(--border)}
+.msg .who{display:block;font-size:.64rem;color:rgba(255,255,255,.65);margin-bottom:3px}
+.mon-row{display:flex;gap:9px;align-items:baseline;font-size:.8rem;padding:6px 0;border-bottom:1px solid var(--border)}
+.mon-room{flex:none;font-size:.66rem;padding:2px 8px;border-radius:99px;border:1px solid var(--border)}
+.mon-speaker{flex:none;color:var(--muted);font-size:.72rem}
+.mon-text{color:#c3cedd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mon-time{flex:none;color:var(--dim);font-size:.66rem}
+.irow{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--border)}
+#roomInp{flex:1;padding:10px 14px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;color:var(--txt);font-size:.86rem;direction:rtl}
+#roomInp:focus{outline:none;border-color:var(--ember)}
+button{padding:9px 18px;background:linear-gradient(135deg,var(--cyan),#0e9fb8);border:none;border-radius:10px;color:#04131a;cursor:pointer;font-size:.84rem;font-weight:700}
+button:hover{filter:brightness(1.08)}
+button:disabled{background:#334155;color:#94a3b8;cursor:not-allowed}
+button.rej{background:var(--panel2);color:var(--txt);border:1px solid var(--border)}
+.confirm-row{display:flex;gap:7px;align-self:flex-end}
+.empty{color:var(--muted);font-size:.84rem;text-align:center;padding:30px 10px}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">OS4</div>
+    <a href="/" class="navicon" title="الشات"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></a>
+    <a href="/dashboard" class="navicon" title="لوحة التحكم"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></a>
+    <a href="/rooms" class="navicon on" title="غرف الأقسام"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="2.2"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/><circle cx="9.5" cy="13.2" r="1"/><circle cx="14.5" cy="13.2" r="1"/></svg></a>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div><h1>غرف الأقسام</h1><small>كل مديرية بخيطها الخاص — غرفة "مراقبة" تجمعها كلها قدامك حيّاً</small></div>
+    </header>
+    <div class="rooms-shell">
+      <aside class="room-list" id="roomList"></aside>
+      <div class="room-main">
+        <div class="room-head" id="roomHead"></div>
+        <div class="room-msgs" id="roomMsgs"></div>
+        <div class="irow" id="roomInputRow">
+          <input id="roomInp" placeholder="اكتب رسالتك…" autocomplete="off">
+          <button id="roomSendBtn">إرسال</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const MONITOR = '__monitor__';
+const DIR_COLOR = {
+  intelligence:'#60a5fa', engineering:'#22d3ee', financial:'#34d399', security:'#f87171',
+  operations:'#fbbf24', research:'#a78bfa', customer_business:'#f472b6', learning_evolution:'#2dd4bf'
+};
+let selected = MONITOR;
+let roomsCache = [];
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function roomColor(key){
+  if(key===MONITOR) return '#ff6a3d';
+  if(key==='executive') return '#fbbf24';
+  const r = roomsCache.find(x=>x.key===key);
+  return (r && DIR_COLOR[r.directorate]) || '#687080';
+}
+function roomTitle(key){
+  if(key===MONITOR) return 'مراقبة — كل الأقسام';
+  const r = roomsCache.find(x=>x.key===key);
+  return r ? r.title_ar : key;
+}
+
+async function loadRoomList(){
+  const r = await fetch('/api/rooms');
+  const d = await r.json();
+  roomsCache = d.rooms;
+  const items = [{key:MONITOR, title_ar:'مراقبة — كل الأقسام', last_text:'عرض حي لكل محادثات الأقسام مجتمعة', last_at:''}, ...d.rooms];
+  document.getElementById('roomList').innerHTML = items.map(r=>
+    '<div class="room-item'+(selected===r.key?' sel':'')+'" data-key="'+r.key+'">'
+    + '<span class="room-dot" style="background:'+roomColor(r.key)+'"></span>'
+    + '<div style="min-width:0;flex:1"><div class="ri-name">'+escapeHtml(r.title_ar)+'</div>'
+    + '<div class="ri-prev">'+escapeHtml(r.last_text||'لا رسائل بعد')+'</div></div>'
+    + '<span class="ri-time">'+escapeHtml((r.last_at||'').split(' ')[1]||'')+'</span>'
+    + '</div>'
+  ).join('');
+}
+
+function renderHead(){
+  document.getElementById('roomHead').innerHTML =
+    '<span class="room-dot" style="background:'+roomColor(selected)+'"></span><b>'+escapeHtml(roomTitle(selected))+'</b>'
+    + (selected===MONITOR?'<small>— قراءة فقط</small>':'');
+  document.getElementById('roomInputRow').className = selected===MONITOR ? 'irow hidden' : 'irow';
+}
+
+function addConfirm(what, why, reqId){
+  const wrap = document.getElementById('roomMsgs');
+  const d = document.createElement('div');
+  d.className = 'msg bot';
+  d.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>يحتاج موافقتك: '+escapeHtml(what)+(why?' — '+escapeHtml(why):'');
+  wrap.appendChild(d);
+  const row = document.createElement('div');
+  row.className = 'confirm-row';
+  row.innerHTML = '<button data-conf="1" data-id="'+reqId+'">نفّذ</button><button class="rej" data-conf="0" data-id="'+reqId+'">تجاهل</button>';
+  wrap.appendChild(row);
+  wrap.scrollTop = 1e9;
+}
+
+async function loadThread(){
+  if(selected===MONITOR){
+    const r = await fetch('/api/rooms/monitor');
+    const d = await r.json();
+    const wrap = document.getElementById('roomMsgs');
+    wrap.innerHTML = d.messages.length ? d.messages.map(m=>
+      '<div class="mon-row"><span class="mon-room" style="color:'+roomColor(m.room)+';border-color:'+roomColor(m.room)+'66">'+escapeHtml(roomTitle(m.room))+'</span>'
+      + '<span class="mon-speaker">'+escapeHtml(m.speaker)+'</span>'
+      + '<span class="mon-text">'+escapeHtml(m.text)+'</span>'
+      + '<span class="mon-time">'+escapeHtml((m.at||'').split(' ')[1]||'')+'</span></div>'
+    ).join('') : '<div class="empty">لا محادثات بعد بأي قسم</div>';
+    return;
+  }
+  const r = await fetch('/api/room?key='+encodeURIComponent(selected));
+  const d = await r.json();
+  const wrap = document.getElementById('roomMsgs');
+  wrap.innerHTML = d.messages.length ? d.messages.map(m=>{
+    const mine = m.speaker === 'owner';
+    return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who">'+escapeHtml(roomTitle(selected))+'</span>')+escapeHtml(m.text)+'</div>';
+  }).join('') : '<div class="empty">ابدأ المحادثة مع '+escapeHtml(roomTitle(selected))+'</div>';
+  wrap.scrollTop = 1e9;
+}
+
+async function selectRoom(key){
+  selected = key;
+  document.querySelectorAll('.room-item').forEach(el=>el.classList.toggle('sel', el.dataset.key===key));
+  renderHead();
+  await loadThread();
+}
+
+async function sendMsg(){
+  const inp = document.getElementById('roomInp');
+  const msg = inp.value.trim();
+  if(!msg || selected===MONITOR) return;
+  inp.value='';
+  document.getElementById('roomSendBtn').disabled = true;
+  const wrap = document.getElementById('roomMsgs');
+  const u = document.createElement('div'); u.className='msg user'; u.textContent=msg;
+  wrap.appendChild(u); wrap.scrollTop = 1e9;
+  try{
+    const r = await fetch('/api/room/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,message:msg})});
+    const d = await r.json();
+    if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id); }
+    else{
+      const b = document.createElement('div'); b.className='msg bot';
+      b.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
+      wrap.appendChild(b); wrap.scrollTop = 1e9;
+    }
+  }catch(e){
+    const b = document.createElement('div'); b.className='msg bot'; b.textContent='خطأ: '+e.message;
+    wrap.appendChild(b);
+  }
+  document.getElementById('roomSendBtn').disabled = false;
+  loadRoomList();
+}
+
+document.getElementById('roomList').addEventListener('click', e=>{
+  const item = e.target.closest('.room-item');
+  if(item) selectRoom(item.dataset.key);
+});
+document.getElementById('roomSendBtn').addEventListener('click', sendMsg);
+document.getElementById('roomInp').addEventListener('keydown', e=>{ if(e.key==='Enter') sendMsg(); });
+document.getElementById('roomMsgs').addEventListener('click', async e=>{
+  const b = e.target.closest('button[data-conf]');
+  if(!b) return;
+  b.parentElement.remove();
+  const r = await fetch('/api/room/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,request_id:b.dataset.id,approved:b.dataset.conf==='1'})});
+  const d = await r.json();
+  const wrap = document.getElementById('roomMsgs');
+  if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id); }
+  else{
+    const el = document.createElement('div'); el.className='msg bot';
+    el.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
+    wrap.appendChild(el); wrap.scrollTop = 1e9;
+  }
+  loadRoomList();
+});
+
+async function init(){
+  await loadRoomList();
+  renderHead();
+  await loadThread();
+}
+init();
+setInterval(()=>{ loadRoomList(); loadThread(); }, 4000);
 </script>
 </body>
 </html>"""
@@ -337,6 +580,7 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
       <a href="#pending" class="navicon" title="طلبات معلّقة"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></a>
       <a href="#feed" class="navicon" title="السجل الحي"><svg viewBox="0 0 24 24"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg></a>
     </nav>
+    <a href="/rooms" class="navicon" title="غرف الأقسام" style="margin-top:auto"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="2.2"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/><circle cx="9.5" cy="13.2" r="1"/><circle cx="14.5" cy="13.2" r="1"/></svg></a>
     <a href="/" class="navicon navicon-chat" title="الشات"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></a>
   </aside>
 
@@ -879,6 +1123,73 @@ def _format_result(chat_id: str | None, result: dict) -> dict:
     return payload
 
 
+def _format_room_result(room: str, result: dict) -> dict:
+    """نفس _format_result لكن تسجّل الرد (أو طلب الموافقة) بسجل الغرفة
+    نفسها أيضاً — عشان خيط المحادثة يبقى كامل ومراقَب لاحقاً، لا يختفي
+    بعد انتهاء الطلب."""
+    if "pending_request_id" in result:
+        what, why = result.get("what", ""), result.get("why", "")
+        rooms.post(room, room, f"يحتاج موافقتك: {what}" + (f" — {why}" if why else ""))
+        return {"needs_confirmation": True, "request_id": result["pending_request_id"], "what": what, "why": why}
+    reply = result.get("reply") or result.get("verdict", "")
+    rooms.post(room, room, reply)
+    return {"reply": reply}
+
+
+def _handle_room_send(body: dict) -> dict:
+    room = str(body.get("room", "")).strip()
+    message = str(body.get("message", "")).strip()
+    if not rooms.is_valid(room):
+        return {"error": "غرفة غير معروفة"}
+    if not message:
+        return {"error": "رسالة فاضية"}
+
+    rooms.post(room, "owner", message)
+    if room == rooms.EXECUTIVE:
+        # غرفة الإدارة العليا = نفس مسار الشات العام، بلا شخصية بوت
+        # محدّدة ولا حصر أدوات — مكتب صاحب النظام نفسه، لا مديرية فرعية.
+        result = kernel.run_task(message, proposed_by="owner", interactive=False)
+    else:
+        bot = bots.BOTS[room]
+        result = kernel.run_task(
+            message, persona=bot["persona"], allowed_tools=bot["allowed_tools"],
+            proposed_by=room, interactive=False,
+        )
+    return _format_room_result(room, result)
+
+
+def _handle_room_confirm(body: dict) -> dict:
+    room = str(body.get("room", "")).strip()
+    request_id = body.get("request_id")
+    approved = bool(body.get("approved"))
+    if not rooms.is_valid(room):
+        return {"error": "غرفة غير معروفة"}
+    if not request_id:
+        return {"error": "يحتاج request_id"}
+
+    (decision.approve if approved else decision.reject)(request_id, decided_by="owner")
+    result = kernel.resume_task(request_id)
+    if not result.get("ok", True) and "error" in result and "verdict" not in result:
+        return {"error": result["error"]}
+    return _format_room_result(room, result)
+
+
+def _rooms_list_data() -> dict:
+    """لِـsidebar صفحة /rooms: كل غرفة + آخر رسالة فيها، عشان تشوف
+    لمحة سريعة بلا ما تفتح كل غرفة لحالها."""
+    out = []
+    for r in rooms.list_rooms():
+        last_list = rooms.history(r["key"], limit=1)
+        last = last_list[-1] if last_list else None
+        out.append({
+            **r,
+            "last_text": (last["text"][:90] if last else ""),
+            "last_at": (last["at"] if last else ""),
+            "last_speaker": (last["speaker"] if last else ""),
+        })
+    return {"rooms": out}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -889,38 +1200,63 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        parsed = urlparse(self.path)
+        path, qs = parsed.path, parse_qs(parsed.query)
+        if path in ("/", "/index.html"):
             body = _UI_HTML.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif self.path == "/dashboard":
+        elif path == "/dashboard":
             body = _DASHBOARD_HTML.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif self.path == "/api/dashboard":
+        elif path == "/rooms":
+            body = _ROOMS_HTML.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif path == "/api/dashboard":
             self._send_json(200, _dashboard_data())
+        elif path == "/api/rooms":
+            self._send_json(200, _rooms_list_data())
+        elif path == "/api/room":
+            key = (qs.get("key") or [""])[0]
+            if not rooms.is_valid(key):
+                self._send_json(404, {"error": "غرفة غير معروفة"})
+            else:
+                self._send_json(200, {"room": key, "messages": rooms.history(key)})
+        elif path == "/api/rooms/monitor":
+            self._send_json(200, {"messages": rooms.recent_all()})
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
         try:
+            parsed = urlparse(self.path)
+            path = parsed.path
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
-            if self.path == "/api/chat":
+            if path == "/api/chat":
                 self._send_json(200, _handle_chat(body))
-            elif self.path == "/api/confirm":
+            elif path == "/api/confirm":
                 self._send_json(200, _handle_confirm(body))
-            elif self.path == "/api/dashboard/decide":
+            elif path == "/api/dashboard/decide":
                 self._send_json(200, _handle_dashboard_decide(body))
-            elif self.path == "/api/dashboard/pc-toggle":
+            elif path == "/api/dashboard/pc-toggle":
                 self._send_json(200, _handle_pc_toggle(body, self.client_address[0]))
+            elif path == "/api/room/send":
+                self._send_json(200, _handle_room_send(body))
+            elif path == "/api/room/confirm":
+                self._send_json(200, _handle_room_confirm(body))
             else:
                 self._send_json(404, {"error": "مسار غير معروف"})
         except Exception as e:  # noqa: BLE001 — خطأ غير متوقع يُرجَع للمتصفح، لا يُسقط السيرفر
