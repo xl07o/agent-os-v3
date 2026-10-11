@@ -4,7 +4,8 @@
 نفسهما (بوابة الأمان والموافقة) يمرّان بنفس الطريق بالضبط، بلا باب خلفي:
 
   1) الكود الجديد يُختبر فعلياً داخل Daytona sandbox معزول تماماً عن
-     جهازك. فشل الاختبار — أو حتى مجرد تعذّر الوصول لـDaytona نفسه —
+     جهازك: يُترجم، يُستورد، ثم selftest.py يتأكد أن الحواجز (الموافقة،
+     منع أدوات الجهاز، سقف الصرف، CSRF) لسا شغالة فعلاً. فشل الاختبار — أو حتى مجرد تعذّر الوصول لـDaytona نفسه —
      يوقف كل شي هنا؛ لا يصل أبداً لمرحلة طلب الموافقة. فشل الساندبوكس
      = فشل الاقتراح، ليس تجاوزاً.
   2) موافقتك الصريحة على الفرق (diff) الكامل والحقيقي بين القديم
@@ -34,7 +35,7 @@ _SUBMODULES = [
     "obsidian", "tools", "status", "housekeeping", "self_improve",
     "roles", "decision", "bots", "chatroom", "skills", "evidence",
     "router", "metrics", "web_chat", "deploy", "kernel", "cli",
-    "rooms", "spend", "web", "learning", "ceo", "market", "widgets",
+    "rooms", "spend", "web", "learning", "ceo", "market", "widgets", "selftest",
 ]
 
 
@@ -62,22 +63,30 @@ def _real_path(relative_filename: str) -> str:
     return path
 
 
-def _test_in_sandbox(relative_filename: str, new_content: str) -> dict:
+def sandbox_script(relative_filename: str, new_content: str) -> str:
+    """نفس السكربت اللي يشتغل داخل Daytona — منفصل عشان ينختبر محلياً."""
     tar_b64 = sandbox.build_package_tarball_b64({relative_filename: new_content})
     imports = ", ".join(f"agent_os4.{m}" for m in _SUBMODULES)
-    script = (
+    return (
         "set -e\n"
-        "mkdir -p /tmp/os4test && cd /tmp/os4test\n"
+        "rm -rf /tmp/os4test && mkdir -p /tmp/os4test && cd /tmp/os4test\n"
         f"echo '{tar_b64}' | base64 -d | tar xz\n"
         "pip install -q python-dotenv requests >/tmp/pip.log 2>&1 || true\n"
         "python3 -m py_compile agent_os4/*.py\n"
         f"python3 -c \"import sys; sys.path.insert(0, '.'); import {imports}; print('IMPORT_OK')\"\n"
+        # اختبار سلوكي: الحواجز (موافقة/أدوات الجهاز/سقف الصرف/CSRF) لسا شغالة فعلاً
+        "python3 -m agent_os4.selftest\n"
     )
+
+
+def _test_in_sandbox(relative_filename: str, new_content: str) -> dict:
+    script = sandbox_script(relative_filename, new_content)
     sb_id = None
     try:
         sb_id = sandbox.create(label="self-improve-test")
         result = sandbox.run_bash(sb_id, script, timeout=120)
-        passed = result["exit_code"] == 0 and "IMPORT_OK" in str(result["output"])
+        output = str(result["output"])
+        passed = result["exit_code"] == 0 and "IMPORT_OK" in output and "SELFTEST_OK" in output
         return {"ok": passed, "output": str(result["output"])[:3000]}
     except Exception as e:  # noqa: BLE001 — أي فشل بالوصول لـDaytona نفسه = فشل اختبار، لا تجاوز صامت
         return {"ok": False, "output": f"{type(e).__name__}: {e}"}

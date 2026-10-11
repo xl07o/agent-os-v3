@@ -22,7 +22,7 @@ _LEDGER_FILE = os.path.join(_DATA_DIR, "decision_ledger.json")
 
 # ملفات حساسة تستاهل تحذيراً إضافياً صريح بنص المراجعة (مو شرط تفعيلها
 # — المراجعة الآن تصير لكل طلب بلا استثناء، راجع propose()).
-HIGH_RISK_MARKERS = ("safety.py", "approval.py", "decision.py", "roles.py")
+HIGH_RISK_MARKERS = ("safety.py", "approval.py", "decision.py", "roles.py", "selftest.py", "self_improve.py", "spend.py")
 
 
 def _load_ledger() -> list[dict]:
