@@ -22,9 +22,14 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import approval, bots, chatroom, decision, env, evidence, kernel, metrics, rooms, router, safety, status
+from . import approval, bots, chatroom, decision, env, evidence, kernel, metrics, rooms, router, safety, spend, status
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
+_LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
+_LOCAL_ONLY_ERROR = (
+    "{what} من اللوحة متاح فقط من جهازك مباشرة (localhost) — لا عبر رابط "
+    "مستضاف (Daytona/Fly.io)، منعاً لأي زائر يملك الرابط."
+)
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("OS4_WEB_CHAT_PORT", "8080"))
@@ -601,6 +606,11 @@ body{
 .pill.off .dot{background:var(--dim)}
 .pill.warn{border-color:rgba(251,191,36,.4)}
 .pill.warn .dot{background:var(--amber)}
+.spend-bar{display:inline-block;width:70px;height:5px;border-radius:99px;background:var(--dim);overflow:hidden}
+.spend-bar i{display:block;height:100%;background:var(--green);transition:width .4s}
+.pill.warn .spend-bar i{background:var(--amber)}
+.spend-edit{font:inherit;font-size:.64rem;color:var(--txt);background:transparent;border:1px solid var(--border);border-radius:99px;padding:1px 8px;cursor:pointer}
+.spend-edit:hover{border-color:var(--ember-dim)}
 .switch{position:relative;display:inline-block;width:32px;height:18px;flex:none}
 .switch input{opacity:0;width:0;height:0}
 .switch .slider{position:absolute;inset:0;background:var(--dim);border-radius:99px;cursor:pointer;transition:.18s}
@@ -910,7 +920,18 @@ function renderTicker(d){
     pill('Claude', s.claude_configured)
     + pill('Daytona', s.daytona_configured)
     + '<span class="pill'+(d.pc_access_enabled?' warn':' off')+'"><label class="switch"><input type="checkbox" id="pcToggle"'+(d.pc_access_enabled?' checked':'')+'><span class="slider"></span></label>وصول الجهاز الكامل: <b id="pcState">'+(d.pc_access_enabled?'مفعّل':'معطّل')+'</b></span>'
-    + '<span class="pill" id="pcNoteWrap"><small id="pcNote">'+(d.pc_access_enabled?'نشط — كل أمر يحتاج موافقتك رغم ذلك':'يعمل فقط من جهازك (localhost)')+'</small></span>';
+    + '<span class="pill" id="pcNoteWrap"><small id="pcNote">'+(d.pc_access_enabled?'نشط — كل أمر يحتاج موافقتك رغم ذلك':'يعمل فقط من جهازك (localhost)')+'</small></span>'
+    + spendPill(d.claude_spend);
+}
+
+/* سقف صرف Claude — أرقام حقيقية من usage حق Anthropic (spend.py) */
+function spendPill(sp){
+  if(!sp) return '';
+  const pct = sp.budget_usd > 0 ? Math.min(100, Math.round(sp.spent_usd / sp.budget_usd * 100)) : 100;
+  return '<span class="pill'+(pct >= 80 ? ' warn' : ' ok')+'"><span class="dot"></span>Claude هالشهر: <b>$'+sp.spent_usd.toFixed(2)+'</b> / $'+sp.budget_usd.toFixed(2)
+    + '<span class="spend-bar"><i style="width:'+pct+'%"></i></span>'
+    + '<small>'+sp.calls+' استدعاء</small>'
+    + '<button class="spend-edit" id="budgetEdit" title="من جهازك فقط (localhost)">تعديل السقف</button></span>';
 }
 
 /* ===== agent ledger cards ===== */
@@ -1215,6 +1236,19 @@ document.getElementById('statusStrip').addEventListener('change', async e=>{
   load();
 });
 
+document.getElementById('statusStrip').addEventListener('click', async e=>{
+  if(e.target.id !== 'budgetEdit') return;
+  const current = lastData && lastData.claude_spend ? lastData.claude_spend.budget_usd : '';
+  const raw = prompt('سقف صرف Claude الشهري بالدولار (Claude يتوقف تلقائياً قبل ما يتعداه):', current);
+  if(raw === null) return;
+  try{
+    const r = await fetch('/api/dashboard/budget',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:raw.trim()})});
+    const d = await r.json();
+    if(!d.ok) alert(d.error);
+  }catch(err){ alert('تعذّر الاتصال: '+err.message); }
+  load();
+});
+
 async function sendBroadcast(){
   const inp = document.getElementById('bcInput');
   const msg = inp.value.trim();
@@ -1354,6 +1388,7 @@ def _dashboard_data() -> dict:
         "rate_trend": _rate_trend(full_ledger),
         "activity_heatmap": _activity_heatmap(full_ledger),
         "hour_histogram": _hour_of_day_histogram(full_ledger),
+        "claude_spend": spend.summary(),
     }
 
 
@@ -1378,20 +1413,16 @@ def _handle_dashboard_decide(body: dict) -> dict:
     return {"ok": True, "applied": False, "note": "تم تسجيل القرار — تطبيقه الفعلي يحتاج أمره الخاص (مثل طبّق_توثيق)"}
 
 
-def _handle_pc_toggle(body: dict, client_ip: str) -> dict:
+def _handle_pc_toggle(body: dict, is_local: bool) -> dict:
     """تفعيل/تعطيل وضع الوصول الكامل للجهاز من اللوحة نفسها — بشرط واحد
-    لا استثناء له: الطلب لازم يجي من نفس الجهاز (loopback) حرفياً. لو
-    اللوحة مفتوحة عبر رابط Daytona/Fly.io مستضاف، أي زائر يوصل للرابط
-    يقدر يفتح /dashboard — لولا هذا الشرط كان بإمكانه يفعّل وصولاً
-    حقيقياً لجهاز المضيف عن بعد بضغطة واحدة بلا أي حاجز. هذا الشرط هو
-    الحاجز الحقيقي هنا، لا مجرد تلميح بالواجهة."""
-    if client_ip not in _LOOPBACK_IPS:
-        return {
-            "ok": False,
-            "error": "تفعيل/تعطيل وصول الجهاز من اللوحة متاح فقط من جهازك مباشرة "
-                     "(localhost) — لا عبر رابط مستضاف (Daytona/Fly.io)، منعاً لتفعيل "
-                     "عن بعد من أي زائر يملك الرابط.",
-        }
+    لا استثناء له: الطلب لازم يجي من نفس الجهاز (loopback) حرفياً، وباسم
+    مضيف محلي (راجع Handler._is_local_request). لو اللوحة مفتوحة عبر رابط
+    Daytona/Fly.io مستضاف، أي زائر يوصل للرابط يقدر يفتح /dashboard —
+    لولا هذا الشرط كان بإمكانه يفعّل وصولاً حقيقياً لجهاز المضيف عن بعد
+    بضغطة واحدة بلا أي حاجز. هذا الشرط هو الحاجز الحقيقي هنا، لا مجرد
+    تلميح بالواجهة."""
+    if not is_local:
+        return {"ok": False, "error": _LOCAL_ONLY_ERROR.format(what="تفعيل/تعطيل وصول الجهاز")}
 
     enable = bool(body.get("enable"))
     os.environ["OS4_ALLOW_PC_ACCESS"] = "1" if enable else "0"
@@ -1403,13 +1434,29 @@ def _handle_pc_toggle(body: dict, client_ip: str) -> dict:
         persisted_error = str(e)
 
     what = "تفعيل وضع الوصول الكامل للجهاز" if enable else "تعطيل وضع الوصول الكامل للجهاز"
-    req = decision.propose(what=what, why="تغيير من لوحة التحكم مباشرة (localhost)", proposed_by="owner")
-    decision.approve(req["request_id"], decided_by="owner-dashboard-loopback")
+    decision.record_owner_action(what, "تغيير من لوحة التحكم مباشرة (localhost)", decided_by="owner-dashboard-loopback")
 
     result = {"ok": True, "pc_access_enabled": safety.pc_access_enabled(), "persisted": persisted}
     if not persisted:
         result["warning"] = "فُعِّل للجلسة الحالية فقط — فشلت كتابة .env على القرص: " + persisted_error
     return result
+
+
+def _handle_budget(body: dict, is_local: bool) -> dict:
+    """تعديل سقف صرف Claude الشهري — نفس شرط loopback حق وصول الجهاز،
+    لأنه فلوس حقيقية: زائر رابط مستضاف ما يقدر يرفع السقف."""
+    if not is_local:
+        return {"ok": False, "error": _LOCAL_ONLY_ERROR.format(what="تعديل سقف صرف Claude")}
+    try:
+        value = spend.set_budget(body.get("amount"))
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    decision.record_owner_action(
+        f"تعديل سقف صرف Claude الشهري إلى {value}$",
+        "تغيير من لوحة التحكم مباشرة (localhost)",
+        decided_by="owner-dashboard-loopback",
+    )
+    return {"ok": True, "budget_usd": value, "claude_spend": spend.summary()}
 
 
 def _handle_chat(body: dict) -> dict:
@@ -1650,7 +1697,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def _is_local_request(self) -> bool:
+        """محلي فعلاً = الاتصال من loopback **و** اسم المضيف محلي. الشرط
+        الثاني يسد DNS rebinding: موقع خبيث يخلي نطاقه يشير لـ127.0.0.1
+        فيصير الاتصال loopback، لكن Host يبقى اسم نطاقه هو."""
+        host = urlparse("//" + (self.headers.get("Host") or "")).hostname or ""
+        return self.client_address[0] in _LOOPBACK_IPS and host in _LOOPBACK_HOSTNAMES
+
+    def _reject_cross_site(self) -> bool:
+        """حماية CSRF: موقع ثاني مفتوح بمتصفحك ما يقدر يرسل طلب POST هنا.
+        نشترط Content-Type: application/json (المتصفح ما يرسله لموقع ثاني
+        بدون preflight، وهذا السيرفر ما يرد على OPTIONS)، ولو فيه Origin
+        لازم يطابق Host نفسه."""
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            self._send_json(415, {"error": "الطلب لازم يكون Content-Type: application/json"})
+            return True
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != (self.headers.get("Host") or ""):
+            self._send_json(403, {"error": "طلب من موقع آخر — مرفوض (حماية CSRF)"})
+            return True
+        return False
+
     def do_POST(self):
+        if self._reject_cross_site():
+            return
         try:
             parsed = urlparse(self.path)
             path = parsed.path
@@ -1663,7 +1734,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/dashboard/decide":
                 self._send_json(200, _handle_dashboard_decide(body))
             elif path == "/api/dashboard/pc-toggle":
-                self._send_json(200, _handle_pc_toggle(body, self.client_address[0]))
+                self._send_json(200, _handle_pc_toggle(body, self._is_local_request()))
+            elif path == "/api/dashboard/budget":
+                self._send_json(200, _handle_budget(body, self._is_local_request()))
             elif path == "/api/room/send":
                 self._send_json(200, _handle_room_send(body))
             elif path == "/api/room/confirm":

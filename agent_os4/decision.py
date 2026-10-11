@@ -87,6 +87,25 @@ def propose(what: str, why: str, proposed_by: str = "owner", level: str = approv
     return {"request_id": req_id, "independent_review": review}
 
 
+def record_owner_action(what: str, why: str, decided_by: str = "owner") -> str:
+    """إجراء نفّذه صاحب النظام بنفسه (مثل تبديل وصول الجهاز أو تعديل سقف
+    الصرف من اللوحة) — يُسجَّل بنفس السجل للشفافية، بلا مراجعة مستقلة:
+    ما فيه شي يُراجَع، القرار صار فعلاً من صاحبه. وبلا استدعاء Claude
+    مدفوع على لا شيء."""
+    _, req_id = approval.request(what=what, why=why, level=approval.NEEDS_APPROVAL, proposed_by="owner")
+    approval.resolve(req_id, approved=True, decided_by=decided_by)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    _append_ledger({
+        "request_id": req_id, "what": what, "proposed_by": "owner",
+        "independent_review": None, "stage": "proposed", "at": now,
+    })
+    _append_ledger({
+        "request_id": req_id, "stage": "approved", "decided_by": decided_by,
+        "reason": "إجراء مباشر من صاحب النظام", "at": now,
+    })
+    return req_id
+
+
 def approve(request_id: str, decided_by: str = "owner", reason: str = "") -> bool:
     """Approval Authority."""
     ok = approval.resolve(request_id, approved=True, decided_by=decided_by)

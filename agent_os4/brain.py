@@ -10,6 +10,7 @@ import os
 import requests
 
 from . import env  # noqa: F401 — يضمن تحميل .env قبل أي getenv هنا
+from . import spend
 
 _TIMEOUT = 30
 
@@ -48,17 +49,53 @@ def _gemini(prompt: str) -> str:
     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 
+_CLAUDE_TIMEOUT = 300  # Opus يفكّر قبل ما يرد — 30 ثانية ما تكفي
+_CLAUDE_MAX_TOKENS = 16000
+_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+class Refused(Exception):
+    """Claude (وموديل الاحتياط حقه) رفض الطلب لأسباب أمان. ما نحوّله
+    لمزوّد ثاني — هذا يكون تحايل على الرفض، مو تراجع شبكة."""
+
+
 def _anthropic(prompt: str) -> str:
-    key = os.environ["ANTHROPIC_API_KEY"]
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-        json={"model": model, "max_tokens": 1024, "messages": [{"role": "user", "content": prompt}]},
-        timeout=_TIMEOUT,
-    )
-    r.raise_for_status()
-    return r.json()["content"][0]["text"]
+    # استيراد متأخر: لو الحزمة مو منزّلة، Claude يُتخطّى بخطأ واضح
+    # والمزودين الثانيين يكملون — بدل ما ينهار brain.py كامل.
+    import anthropic
+
+    model = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
+    reservation = spend.reserve(model, prompt, _CLAUDE_MAX_TOKENS)
+    try:
+        client = anthropic.Anthropic(timeout=_CLAUDE_TIMEOUT, max_retries=2)
+        # stream + get_final_message: يمنع انقطاع الطلبات الطويلة.
+        # fallbacks="default": لو رفض مصنّف الأمان، Anthropic تعيد
+        # الطلب على الموديل الاحتياطي المناسب داخل نفس الاستدعاء.
+        with client.beta.messages.stream(
+            model=model,
+            max_tokens=_CLAUDE_MAX_TOKENS,
+            betas=[_FALLBACK_BETA],
+            fallbacks="default",
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            response = stream.get_final_message()
+    except Exception:
+        spend.release(reservation)
+        raise
+    spend.record(reservation, model, getattr(response, "model", model), response.usage)
+
+    if response.stop_reason == "refusal":
+        details = getattr(response, "stop_details", None)
+        category = getattr(details, "category", None) or "غير محدد"
+        raise Refused(f"Claude رفض الطلب (التصنيف: {category})")
+
+    # الرد ممكن يبدأ ببلوك تفكير — نجمع بلوكات النص فقط، مو content[0].
+    text = "".join(b.text for b in response.content if b.type == "text").strip()
+    if not text:
+        raise RuntimeError(f"Claude رجّع رد بلا نص (stop_reason={response.stop_reason})")
+    if response.stop_reason == "max_tokens":
+        text += "\n\n[تنبيه: الرد انقطع عند الحد الأقصى للطول]"
+    return text
 
 
 # (الاسم, الدالة) — Claude أولاً (هو المخّ المقصود)، ثم تراجع تلقائي
@@ -90,6 +127,8 @@ def ask(prompt: str) -> str:
             return call(prompt)
         except _Skip:
             continue
+        except Refused:
+            raise
         except Exception as e:  # noqa: BLE001 - نجمع كل الأخطاء ونعرضها لو فشل الكل
             errors.append(f"{name}: {e}")
     raise RuntimeError(
