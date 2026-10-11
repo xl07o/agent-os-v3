@@ -467,6 +467,29 @@ body{
 .switch input:checked + .slider::before{transform:translateX(14px)}
 .switch input:disabled + .slider{opacity:.5;cursor:not-allowed}
 
+/* ===== broadcast to all departments ===== */
+.broadcast-bar{display:flex;gap:9px;padding:12px 20px 0}
+.broadcast-bar input{
+  flex:1;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;
+  color:var(--txt);font-size:.84rem;direction:rtl;
+}
+.broadcast-bar input:focus{outline:none;border-color:var(--ember)}
+.broadcast-bar button{
+  padding:10px 20px;border:none;border-radius:10px;color:#1a0804;cursor:pointer;font-size:.84rem;font-weight:800;
+  background:linear-gradient(135deg,var(--ember),#ffb199);white-space:nowrap;
+}
+.broadcast-bar button:hover{filter:brightness(1.08)}
+.broadcast-bar button:disabled{background:var(--dim);color:#94a3b8;cursor:not-allowed;filter:none}
+.bc-result{margin:10px 20px 0;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:10px 14px}
+.bc-row{display:flex;justify-content:space-between;align-items:center;padding:5px 2px;font-size:.78rem;border-bottom:1px solid var(--border)}
+.bc-row:last-child{border-bottom:none}
+.bc-row span{font-size:.68rem;padding:2px 9px;border-radius:99px;border:1px solid var(--border)}
+.bc-row.ok span{color:var(--green);border-color:rgba(52,211,153,.4)}
+.bc-row.warn span{color:var(--amber);border-color:rgba(251,191,36,.4)}
+.bc-row.err{color:var(--red)}
+.bc-note{font-size:.7rem;color:var(--muted);margin-top:8px;text-align:left}
+.bc-note a{color:var(--ember)}
+
 /* ===== agent ledger row ===== */
 .ledger-row{display:flex;gap:10px;padding:14px 20px;overflow-x:auto}
 .agent-card{
@@ -599,6 +622,12 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
     </header>
 
     <div class="status-strip" id="statusStrip"></div>
+
+    <section class="broadcast-bar">
+      <input id="bcInput" placeholder="أمر عام لكل الأقسام — يوصل لكل بوت بغرفته الخاصة ويشتغل عليه…" autocomplete="off">
+      <button id="bcSend">أرسل للكل</button>
+    </section>
+    <div class="bc-result hidden" id="bcResult"></div>
 
     <section class="ledger-row" id="ledgerRow"></section>
 
@@ -941,6 +970,37 @@ document.getElementById('statusStrip').addEventListener('change', async e=>{
   load();
 });
 
+async function sendBroadcast(){
+  const inp = document.getElementById('bcInput');
+  const msg = inp.value.trim();
+  if(!msg) return;
+  const btn = document.getElementById('bcSend');
+  const box = document.getElementById('bcResult');
+  btn.disabled = true; btn.textContent = 'جاري الإرسال لكل الأقسام…';
+  box.className = 'hidden';
+  try{
+    const r = await fetch('/api/rooms/broadcast',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+    const d = await r.json();
+    if(d.error){
+      box.innerHTML = '<div class="bc-row err">'+escapeHtml(d.error)+'</div>';
+    }else{
+      box.innerHTML = d.results.map(x=>{
+        const working = !!x.needs_confirmation;
+        return '<div class="bc-row '+(working?'warn':'ok')+'"><b>'+escapeHtml(x.title_ar)+'</b><span>'+(working?'يحتاج موافقتك':'ردّ')+'</span></div>';
+      }).join('') + '<div class="bc-note">راجع كل الردود الكاملة وافتح أي موافقة معلّقة بـ<a href="/rooms">غرف الأقسام ←</a></div>';
+      inp.value = '';
+    }
+    box.className = 'bc-result';
+  }catch(e){
+    box.innerHTML = '<div class="bc-row err">تعذّر الاتصال: '+escapeHtml(e.message)+'</div>';
+    box.className = 'bc-result';
+  }
+  btn.disabled = false; btn.textContent = 'أرسل للكل';
+  load();
+}
+document.getElementById('bcSend').addEventListener('click', sendBroadcast);
+document.getElementById('bcInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendBroadcast(); });
+
 function tickClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('ar-SA'); }
 setInterval(tickClock, 1000); tickClock();
 
@@ -1190,6 +1250,34 @@ def _rooms_list_data() -> dict:
     return {"rooms": out}
 
 
+def _handle_broadcast(body: dict) -> dict:
+    """أمر واحد يُرسَل لكل الموظفين (البوتات الثمانية) دفعة وحدة — كل
+    واحد يستلمه بغرفته الخاصة ويشتغل عليه بنفس مساره العادي تماماً
+    (kernel.run_task بشخصيته وأدواته المحصورة). لا غرفة تنفيذية هنا —
+    "الموظفون" يعني المديريات الثمانية، لا مكتب صاحب النظام نفسه.
+
+    تنفيذ متسلسل عمداً لا متوازٍ: approval.py/decision.py/rooms.py كلها
+    تحفظ بقراءة-تعديل-كتابة لملف JSON واحد — تنفيذ متزامن بعدة خيوط
+    يفتح سباق كتابة حقيقي (قرار بوت يضيع لو كتب بوت ثانٍ بنفس اللحظة).
+    التسلسل أبطأ لكنه الوحيد المضمون الصحة هنا."""
+    message = str(body.get("message", "")).strip()
+    if not message:
+        return {"error": "رسالة فاضية"}
+
+    results = []
+    for bot_key, bot in bots.BOTS.items():
+        rooms.post(bot_key, "owner", message)
+        result = kernel.run_task(
+            message, persona=bot["persona"], allowed_tools=bot["allowed_tools"],
+            proposed_by=bot_key, interactive=False,
+        )
+        formatted = _format_room_result(bot_key, result)
+        formatted["room"] = bot_key
+        formatted["title_ar"] = bot["title_ar"]
+        results.append(formatted)
+    return {"results": results}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1257,6 +1345,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_room_send(body))
             elif path == "/api/room/confirm":
                 self._send_json(200, _handle_room_confirm(body))
+            elif path == "/api/rooms/broadcast":
+                self._send_json(200, _handle_broadcast(body))
             else:
                 self._send_json(404, {"error": "مسار غير معروف"})
         except Exception as e:  # noqa: BLE001 — خطأ غير متوقع يُرجَع للمتصفح، لا يُسقط السيرفر
