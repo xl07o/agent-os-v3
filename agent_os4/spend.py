@@ -133,7 +133,7 @@ def reserve(model: str, prompt: str, max_tokens: int) -> float:
         if spent + _reserved + worst > limit:
             raise BudgetExceeded(
                 f"سقف Claude الشهري ({limit:.2f}$) ما يكفي هذا الطلب — "
-                f"المصروف هالشهر {spent:.4f}$. ارفع السقف من الداشبورد لو تبي."
+                f"المصروف هالشهر {spent:.4f}$. ارفع السقف من لوحة التحكم لو تبي تكمل."
             )
         _reserved += worst
     return worst
