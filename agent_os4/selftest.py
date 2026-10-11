@@ -77,6 +77,17 @@ def _checks(tmp: str) -> list[tuple[str, bool]]:
         blocked = True
     results.append(("سقف الصرف يمنع الاستدعاء", blocked))
 
+    from . import telegram_gateway
+    executed = []
+    with mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "x", "TELEGRAM_OWNER_ID": "1"}), \
+         mock.patch.object(telegram_gateway, "send"), mock.patch.object(telegram_gateway, "_call", return_value={}):
+        gw = telegram_gateway.Gateway(lambda t: executed.append(t) or ("", []), lambda r, a: executed.append(r) or ("", []),
+                                      lambda: [], lambda: "")
+        gw.handle_update({"update_id": 1, "message": {"from": {"id": 2}, "chat": {"id": 2, "type": "private"}, "text": "وظّف"}})
+        gw.handle_update({"update_id": 2, "callback_query": {"id": "c", "from": {"id": 2}, "data": "ok:abc",
+                                                             "message": {"chat": {"id": 2}, "message_id": 1}}})
+    results.append(("تيليجرام: غريب ما يقدر ينفّذ ولا يوافق", executed == []))
+
     server = web_chat.ThreadingHTTPServer(("127.0.0.1", 0), web_chat.Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]

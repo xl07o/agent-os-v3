@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, scheduler, sessions, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
+from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, scheduler, sessions, telegram_gateway, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 _LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
@@ -1877,8 +1877,55 @@ def _handle_schedule(action: str, body: dict) -> dict:
 
 
 def _notify_job(job: dict, text: str) -> None:
-    """توصيل نتيجة المهمة المجدولة خارج اللوحة (تيليجرام لو مفعّل)."""
-    return None
+    """توصيل نتيجة المهمة المجدولة لتيليجرام (لو مفعّل)."""
+    waiting = "\n\n(فيه طلبات تنتظر موافقتك: /pending)" if approval.pending() else ""
+    telegram_gateway.notify_owner(f"مهمة مجدولة: {job['title']}\n\n{text}{waiting}")
+
+
+def _approvals_in(result: dict) -> list[tuple[str, str]]:
+    if result.get("needs_confirmation") or result.get("pending_request_id"):
+        return [(result.get("request_id") or result["pending_request_id"], result.get("what", ""))]
+    return []
+
+
+def _tg_on_message(text: str):
+    resp = _handle_ceo({"message": text})
+    if resp.get("error"):
+        return resp["error"], []
+    lines, approvals = [_ceo_summary_text(resp)], []
+    for a in resp.get("assignments", []):
+        if a.get("needs_confirmation"):
+            approvals.append((a["request_id"], f"{a['title_ar']}: {a.get('what', '')}"))
+        else:
+            lines.append(f"— {a['title_ar']}: {(a.get('reply') or '')[:1500]}")
+    approvals += [(p["request_id"], f"({p['kind']}) {p['what']}") for p in resp.get("proposals", [])]
+    return "\n".join(lines), approvals
+
+
+def _tg_on_decide(request_id: str, approved: bool):
+    r = _handle_dashboard_decide({"request_id": request_id, "approved": approved})
+    if not r.get("ok"):
+        return r.get("error", "تعذّر"), []
+    if r.get("hired"):
+        return f"انضم للفريق: {bots.BOTS.get(r['hired'], {}).get('title_ar', r['hired'])}", []
+    if not approved:
+        return "تم الرفض — ما تنفّذ شي.", []
+    result = r.get("result") if isinstance(r.get("result"), dict) else {}
+    approvals = _approvals_in(result)
+    text = r.get("note") or result.get("reply") or result.get("verdict") or "تمت الموافقة"
+    return text, approvals
+
+
+def _tg_on_pending():
+    return [(p["id"], p["what"]) for p in approval.pending()[:10]]
+
+
+def _tg_on_status() -> str:
+    sp = spend.summary()
+    return (f"صرف Claude هالشهر: ${sp['spent_usd']:.2f} من ${sp['budget_usd']:.2f} ({sp['calls']} استدعاء)\n"
+            f"طلبات تنتظر موافقتك: {len(approval.pending())}\n"
+            f"مهام مجدولة شغّالة: {sum(1 for j in scheduler.list_jobs() if j['enabled'])}\n"
+            f"الموظفون: {len(bots.BOTS)}")
 
 
 def _brain_state() -> dict:
@@ -2287,6 +2334,10 @@ def main() -> None:
         print(f"[web_chat] تعذّرت فهرسة المحادثات القديمة: {e}")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     scheduler.start_background(_execute_job, notify=lambda job, text: _notify_job(job, text))
+    if telegram_gateway.configured():
+        telegram_gateway.Gateway(_tg_on_message, _tg_on_decide, _tg_on_pending, _tg_on_status).start()
+        owner = "مضبوط" if telegram_gateway._owner() is not None else "مو مضبوط — راسل البوت يعطيك رقمك"
+        print(f"[web_chat] بوابة تيليجرام شغّالة (TELEGRAM_OWNER_ID: {owner})")
     print(f"[web_chat] يستمع على http://{HOST}:{PORT}  (شات: /  —  لوحة التحكم: /dashboard)")
     if safety.pc_access_enabled():
         print(f"[web_chat] ⚠️  وضع الوصول الكامل للجهاز مفعّل — الجذر: {os.environ.get('OS4_PC_ROOT') or os.getcwd()}")
