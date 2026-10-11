@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import approval, bots, decision, env, evidence, kernel, metrics, rooms, router, safety, status
+from . import approval, bots, chatroom, decision, env, evidence, kernel, metrics, rooms, router, safety, status
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 
@@ -199,6 +199,21 @@ button.rej{background:var(--panel2);color:var(--txt);border:1px solid var(--bord
 .confirm-row{display:flex;gap:7px;align-self:flex-end}
 .empty{color:var(--muted);font-size:.84rem;text-align:center;padding:30px 10px}
 .hidden{display:none !important}
+
+.meeting-panel{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--panel)}
+.bot-check-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
+.bot-check{display:flex;align-items:center;gap:6px;font-size:.76rem;background:var(--panel2);border:1px solid var(--border);border-radius:99px;padding:5px 11px;cursor:pointer;user-select:none}
+.bot-check input{accent-color:var(--ember)}
+.bot-check.checked{border-color:var(--ember)}
+#meetingTopic{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--txt);font-size:.84rem;direction:rtl;resize:vertical;min-height:52px;font-family:inherit}
+#meetingTopic:focus{outline:none;border-color:var(--ember)}
+.meeting-controls{display:flex;justify-content:space-between;align-items:center;margin-top:9px;gap:10px}
+.meeting-controls label{font-size:.76rem;color:var(--muted);display:flex;align-items:center;gap:6px}
+.meeting-controls select{background:var(--panel2);border:1px solid var(--border);border-radius:7px;color:var(--txt);padding:5px 8px;font-size:.78rem}
+.outcome-card{background:var(--panel2);border:1px solid var(--border);border-right:3px solid var(--amber);border-radius:11px;padding:11px 13px;align-self:stretch;margin-bottom:4px}
+.outcome-card .oc-title{font-size:.7rem;color:var(--muted);margin-bottom:4px}
+.outcome-card .oc-rec{font-weight:700;font-size:.86rem;margin-bottom:6px}
+.outcome-card .oc-sup{font-size:.68rem;color:var(--muted);margin-bottom:8px}
 </style>
 </head>
 <body>
@@ -217,6 +232,16 @@ button.rej{background:var(--panel2);color:var(--txt);border:1px solid var(--bord
       <aside class="room-list" id="roomList"></aside>
       <div class="room-main">
         <div class="room-head" id="roomHead"></div>
+        <div class="meeting-panel hidden" id="meetingPanel">
+          <div class="bot-check-row" id="botCheckRow"></div>
+          <textarea id="meetingTopic" placeholder="موضوع الاجتماع — مثلاً: هل نطلق الميزة الجديدة الآن؟"></textarea>
+          <div class="meeting-controls">
+            <label>جولات النقاش
+              <select id="meetingRounds"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+            </label>
+            <button id="meetingStartBtn">ابدأ الاجتماع</button>
+          </div>
+        </div>
         <div class="room-msgs" id="roomMsgs"></div>
         <div class="irow" id="roomInputRow">
           <input id="roomInp" placeholder="اكتب رسالتك…" autocomplete="off">
@@ -228,24 +253,28 @@ button.rej{background:var(--panel2);color:var(--txt);border:1px solid var(--bord
 </div>
 <script>
 const MONITOR = '__monitor__';
+const MEETING = '__meeting__';
 const DIR_COLOR = {
   intelligence:'#60a5fa', engineering:'#22d3ee', financial:'#34d399', security:'#f87171',
   operations:'#fbbf24', research:'#a78bfa', customer_business:'#f472b6', learning_evolution:'#2dd4bf'
 };
 let selected = MONITOR;
 let roomsCache = [];
+let checkedBots = new Set();
 
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function roomColor(key){
   if(key===MONITOR) return '#ff6a3d';
+  if(key===MEETING) return '#a78bfa';
   if(key==='executive') return '#fbbf24';
   const r = roomsCache.find(x=>x.key===key);
   return (r && DIR_COLOR[r.directorate]) || '#687080';
 }
 function roomTitle(key){
   if(key===MONITOR) return 'مراقبة — كل الأقسام';
+  if(key===MEETING) return 'الاجتماع الجماعي';
   const r = roomsCache.find(x=>x.key===key);
   return r ? r.title_ar : key;
 }
@@ -254,7 +283,11 @@ async function loadRoomList(){
   const r = await fetch('/api/rooms');
   const d = await r.json();
   roomsCache = d.rooms;
-  const items = [{key:MONITOR, title_ar:'مراقبة — كل الأقسام', last_text:'عرض حي لكل محادثات الأقسام مجتمعة', last_at:''}, ...d.rooms];
+  const items = [
+    {key:MONITOR, title_ar:'مراقبة — كل الأقسام', last_text:'عرض حي لكل محادثات الأقسام مجتمعة', last_at:''},
+    {key:MEETING, title_ar:'الاجتماع الجماعي', last_text:'نقاش جماعي بين أقسام تختارها → توصية → بوابة الموافقة', last_at:''},
+    ...d.rooms,
+  ];
   document.getElementById('roomList').innerHTML = items.map(r=>
     '<div class="room-item'+(selected===r.key?' sel':'')+'" data-key="'+r.key+'">'
     + '<span class="room-dot" style="background:'+roomColor(r.key)+'"></span>'
@@ -263,13 +296,22 @@ async function loadRoomList(){
     + '<span class="ri-time">'+escapeHtml((r.last_at||'').split(' ')[1]||'')+'</span>'
     + '</div>'
   ).join('');
+  if(document.getElementById('botCheckRow').children.length === 0) renderBotChecks();
+}
+
+function renderBotChecks(){
+  document.getElementById('botCheckRow').innerHTML = roomsCache.filter(r=>r.key!=='executive').map(r=>
+    '<label class="bot-check" data-key="'+r.key+'"><input type="checkbox" value="'+r.key+'">'+escapeHtml(r.title_ar)+'</label>'
+  ).join('');
 }
 
 function renderHead(){
   document.getElementById('roomHead').innerHTML =
     '<span class="room-dot" style="background:'+roomColor(selected)+'"></span><b>'+escapeHtml(roomTitle(selected))+'</b>'
-    + (selected===MONITOR?'<small>— قراءة فقط</small>':'');
-  document.getElementById('roomInputRow').className = selected===MONITOR ? 'irow hidden' : 'irow';
+    + (selected===MONITOR?'<small>— قراءة فقط</small>':'')
+    + (selected===MEETING?'<small>اختر الأقسام، اكتب الموضوع، وابدأ</small>':'');
+  document.getElementById('roomInputRow').className = (selected===MONITOR||selected===MEETING) ? 'irow hidden' : 'irow';
+  document.getElementById('meetingPanel').className = selected===MEETING ? 'meeting-panel' : 'meeting-panel hidden';
 }
 
 function addConfirm(what, why, reqId, review){
@@ -302,6 +344,18 @@ async function loadThread(){
       + '<span class="mon-text">'+escapeHtml(m.text)+'</span>'
       + '<span class="mon-time">'+escapeHtml((m.at||'').split(' ')[1]||'')+'</span></div>'
     ).join('') : '<div class="empty">لا محادثات بعد بأي قسم</div>';
+    return;
+  }
+  if(selected===MEETING){
+    const r = await fetch('/api/meeting');
+    const d = await r.json();
+    const wrap = document.getElementById('roomMsgs');
+    wrap.innerHTML = d.messages.length ? d.messages.map(m=>{
+      const mine = m.speaker === 'owner';
+      const color = roomColor(m.speaker);
+      return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who" style="color:'+color+'">'+escapeHtml(roomTitle(m.speaker))+'</span>')+escapeHtml(m.text)+'</div>';
+    }).join('') : '<div class="empty">ما فيه اجتماعات بعد — اختر الأقسام واكتب موضوعاً وابدأ</div>';
+    wrap.scrollTop = 1e9;
     return;
   }
   const r = await fetch('/api/room?key='+encodeURIComponent(selected));
@@ -347,26 +401,96 @@ async function sendMsg(){
   loadRoomList();
 }
 
+function addMeetingOutcome(result){
+  const wrap = document.getElementById('roomMsgs');
+  if(result.error){
+    const e = document.createElement('div'); e.className='msg bot'; e.textContent='خطأ: '+result.error;
+    wrap.appendChild(e); wrap.scrollTop = 1e9; return;
+  }
+  if(result.outcome === 'failed'){
+    const e = document.createElement('div'); e.className='msg bot';
+    e.textContent = 'فشل الاجتماع — كل البوتات تعذّر الوصول لها (لا إجماع، لا طلب موافقة فُتح على فراغ).';
+    wrap.appendChild(e); wrap.scrollTop = 1e9; return;
+  }
+  const proposals = result.outcome === 'consensus'
+    ? [{recommendation: result.recommendation, supporters: result.supporters, request_id: result.request_id, independent_review: result.independent_review}]
+    : result.proposals;
+  if(result.outcome === 'conflict'){
+    const h = document.createElement('div'); h.className='msg bot';
+    h.textContent = 'تعارض حقيقي — '+proposals.length+' توصيات مختلفة، راجعها كلها قبل ما تختار:';
+    wrap.appendChild(h);
+  }
+  proposals.forEach(p=>{
+    const card = document.createElement('div'); card.className='outcome-card';
+    card.innerHTML = '<div class="oc-title">توصية من: '+escapeHtml((p.supporters||[]).map(roomTitle).join('، '))+'</div>'
+      + '<div class="oc-rec">'+escapeHtml(p.recommendation)+'</div>'
+      + (p.independent_review ? '<div class="oc-sup">رأي المراجع المستقل: '+escapeHtml(p.independent_review)+'</div>' : '')
+      + '<div class="btns"><button data-decide="1" data-id="'+p.request_id+'">وافق</button>'
+      + '<button class="rej" data-decide="0" data-id="'+p.request_id+'">رفض</button></div>';
+    wrap.appendChild(card);
+  });
+  wrap.scrollTop = 1e9;
+}
+
+async function startMeeting(){
+  const botKeys = [...checkedBots];
+  const topic = document.getElementById('meetingTopic').value.trim();
+  if(!botKeys.length || !topic) return;
+  const btn = document.getElementById('meetingStartBtn');
+  btn.disabled = true; btn.textContent = 'النقاش جارٍ…';
+  try{
+    const r = await fetch('/api/meeting/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      bot_keys: botKeys, topic: topic, rounds: parseInt(document.getElementById('meetingRounds').value,10),
+    })});
+    const d = await r.json();
+    document.getElementById('meetingTopic').value = '';
+    await loadThread();
+    addMeetingOutcome(d);
+  }catch(e){
+    addMeetingOutcome({error: e.message});
+  }
+  btn.disabled = false; btn.textContent = 'ابدأ الاجتماع';
+  loadRoomList();
+}
+
 document.getElementById('roomList').addEventListener('click', e=>{
   const item = e.target.closest('.room-item');
   if(item) selectRoom(item.dataset.key);
 });
 document.getElementById('roomSendBtn').addEventListener('click', sendMsg);
 document.getElementById('roomInp').addEventListener('keydown', e=>{ if(e.key==='Enter') sendMsg(); });
+document.getElementById('botCheckRow').addEventListener('change', e=>{
+  if(e.target.type !== 'checkbox') return;
+  const label = e.target.closest('.bot-check');
+  if(e.target.checked){ checkedBots.add(e.target.value); label.classList.add('checked'); }
+  else{ checkedBots.delete(e.target.value); label.classList.remove('checked'); }
+});
+document.getElementById('meetingStartBtn').addEventListener('click', startMeeting);
 document.getElementById('roomMsgs').addEventListener('click', async e=>{
-  const b = e.target.closest('button[data-conf]');
-  if(!b) return;
-  b.parentElement.remove();
-  const r = await fetch('/api/room/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,request_id:b.dataset.id,approved:b.dataset.conf==='1'})});
-  const d = await r.json();
-  const wrap = document.getElementById('roomMsgs');
-  if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id, d.independent_review); }
-  else{
-    const el = document.createElement('div'); el.className='msg bot';
-    el.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
-    wrap.appendChild(el); wrap.scrollTop = 1e9;
+  const confBtn = e.target.closest('button[data-conf]');
+  const decideBtn = e.target.closest('button[data-decide]');
+  if(confBtn){
+    confBtn.parentElement.remove();
+    const r = await fetch('/api/room/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,request_id:confBtn.dataset.id,approved:confBtn.dataset.conf==='1'})});
+    const d = await r.json();
+    const wrap = document.getElementById('roomMsgs');
+    if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id, d.independent_review); }
+    else{
+      const el = document.createElement('div'); el.className='msg bot';
+      el.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
+      wrap.appendChild(el); wrap.scrollTop = 1e9;
+    }
+    loadRoomList();
+    return;
   }
-  loadRoomList();
+  if(decideBtn){
+    const card = decideBtn.closest('.outcome-card');
+    const approved = decideBtn.dataset.decide === '1';
+    const r = await fetch('/api/dashboard/decide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:decideBtn.dataset.id,approved:approved})});
+    const d = await r.json();
+    card.innerHTML = '<div class="oc-rec">'+(approved?'تمت الموافقة':'تم الرفض')+'</div>'
+      + (d.note ? '<div class="oc-sup">'+escapeHtml(d.note)+'</div>' : '');
+  }
 });
 
 async function init(){
@@ -1442,6 +1566,39 @@ def _handle_broadcast(body: dict) -> dict:
     return {"results": results}
 
 
+def _meeting_data() -> dict:
+    """نفس chatroom.history() — غرفة جماعية واحدة مشتركة (لا غرفة لكل
+    موضوع)، عشان لو رجعوا يناقشون موضوعاً سابقاً بعد رفضك يبان استمراراً
+    طبيعياً لنفس المحادثة، لا جلسة منفصلة مبتورة."""
+    return {"messages": chatroom.history(limit=200)}
+
+
+def _handle_meeting_start(body: dict) -> dict:
+    """يغلّف chatroom.resolve() الموجودة فعلياً بالضبط — نقاش جماعي
+    حقيقي بين البوتات المختارة، ثم توصية نهائية تُفتح كطلب موافقة عبر
+    decision.propose() (نفس بوابة الموافقة الوحيدة، الآن بمراجعة مستقلة
+    مغذّاة بسياق حقيقي تلقائياً لكل توصية). لا تنفيذ هنا إطلاقاً — فقط
+    نقاش وتوصية؛ الموافقة تُحسم من نفس /api/dashboard/decide الموجود."""
+    bot_keys = body.get("bot_keys") or []
+    topic = str(body.get("topic", "")).strip()
+    rounds = body.get("rounds", 1)
+    if not topic:
+        return {"error": "الموضوع فاضي"}
+    if not bot_keys:
+        return {"error": "اختر بوتاً واحداً على الأقل"}
+    unknown = [k for k in bot_keys if k not in bots.BOTS]
+    if unknown:
+        return {"error": f"بوتات غير معروفة: {unknown}"}
+    try:
+        rounds = max(1, min(int(rounds), 3))  # حد أعلى معقول — لا جدل بلا نهاية
+    except (TypeError, ValueError):
+        rounds = 1
+    try:
+        return chatroom.resolve(bot_keys, topic, rounds=rounds)
+    except Exception as e:  # noqa: BLE001 — خطأ غير متوقع يُرجَع صادقاً، لا يُسقط السيرفر
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1487,6 +1644,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"room": key, "messages": rooms.history(key)})
         elif path == "/api/rooms/monitor":
             self._send_json(200, {"messages": rooms.recent_all()})
+        elif path == "/api/meeting":
+            self._send_json(200, _meeting_data())
         else:
             self.send_response(404)
             self.end_headers()
@@ -1511,6 +1670,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_room_confirm(body))
             elif path == "/api/rooms/broadcast":
                 self._send_json(200, _handle_broadcast(body))
+            elif path == "/api/meeting/start":
+                self._send_json(200, _handle_meeting_start(body))
             else:
                 self._send_json(404, {"error": "مسار غير معروف"})
         except Exception as e:  # noqa: BLE001 — خطأ غير متوقع يُرجَع للمتصفح، لا يُسقط السيرفر
