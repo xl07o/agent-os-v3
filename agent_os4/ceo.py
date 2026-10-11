@@ -20,7 +20,8 @@ import json
 import os
 import re
 
-from . import agent_memory, agent_skills, bots, brain, decision, learning, reflect, rooms, self_improve, spend, web, widgets
+from . import (agent_memory, agent_skills, bots, brain, decision, learning, reflect, rooms, self_improve, sessions,
+               spend, web, widgets)
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _PENDING_FILE = os.path.join(_DATA_DIR, "ceo_pending.json")
@@ -73,6 +74,21 @@ def _roster_text() -> str:
     )
 
 
+_RECENT_TURNS = 8
+
+
+def _conversation_block() -> str:
+    """آخر رسائل المكتب التنفيذي — عشان يكمل المحادثة، ما يبدأ من صفر كل مرة.
+    آخر رسالة هي طلبك الحالي (انحفظت قبل ما نبني البرومبت)، فنستثنيها."""
+    recent = rooms.history(rooms.EXECUTIVE, limit=_RECENT_TURNS + 1)[:-1]
+    if not recent:
+        return ""
+    label = {"owner": "صاحب الشركة", "ceo": "أنت"}
+    return "آخر المحادثة بالمكتب:\n" + "\n".join(
+        f"[{label.get(m['speaker'], m['speaker'])}] {m['text'][:500]}" for m in recent
+    )
+
+
 def _build_prompt(message: str) -> str:
     budget = spend.summary()
     persona = _PERSONA.format(remaining=budget["remaining_usd"], budget=budget["budget_usd"])
@@ -82,7 +98,8 @@ def _build_prompt(message: str) -> str:
     )
     experience = learning.context_for("ceo", message)
     parts = [persona, "الموظفون الحاليون:\n" + _roster_text()]
-    for block in (agent_memory.prompt_block(), agent_skills.prompt_block(message), experience):
+    for block in (agent_memory.prompt_block(), agent_skills.prompt_block(message), experience,
+                  _conversation_block(), sessions.prompt_block(message, rooms.EXECUTIVE, _RECENT_TURNS + 1)):
         if block:
             parts.append(block)
     parts += [spec, f"طلب صاحب الشركة: {message}"]

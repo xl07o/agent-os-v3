@@ -22,7 +22,7 @@ _EMPLOYEES_FILE = os.path.join(os.path.dirname(__file__), "data", "employees.jso
 # أدوات يقدر الـCEO يعطيها لموظف يوظّفه أو يضيفها لموظف موجود. ممنوع
 # منها أي شي يلمس جهازك الحقيقي (run_command, pc_*) — هذي تبقى بيدك أنت.
 HIREABLE_TOOLS = {
-    "read_file", "write_file", "list_workspace", "web_search", "web_fetch",
+    "read_file", "write_file", "list_workspace", "web_search", "web_fetch", "session_search",
     "sandbox_create", "sandbox_bash", "sandbox_destroy", "browser_screenshot",
 }
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{2,39}$")
@@ -46,7 +46,7 @@ BOTS: dict[str, dict] = {
             "وتستنتج فقط مما قرأته فعلاً مع ذكر المصدر — لا تدّعي معرفة لم "
             "تقرأها، ولا تنفّذ أي أمر أو تكتب أي ملف."
         ),
-        "allowed_tools": {"web_search", "web_fetch"},  # بحث وقراءة فقط — بلا كتابة أو تنفيذ
+        "allowed_tools": {"web_search", "web_fetch", "session_search"},  # بحث وقراءة فقط — بلا كتابة أو تنفيذ
     },
     "docs_bot": {
         "title_ar": "بوت التوثيق", "directorate": "engineering",

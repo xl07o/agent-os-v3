@@ -14,7 +14,7 @@ import json
 import os
 import time
 
-from . import bots
+from . import bots, sessions
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _ROOMS_FILE = os.path.join(_DATA_DIR, "rooms.json")
@@ -58,8 +58,13 @@ def post(room: str, speaker: str, text: str) -> None:
     if not is_valid(room):
         raise ValueError(f"غرفة غير معروفة: {room}")
     entries = _load()
-    entries.append({"room": room, "speaker": speaker, "text": text, "at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    at = time.strftime("%Y-%m-%d %H:%M:%S")
+    entries.append({"room": room, "speaker": speaker, "text": text, "at": at})
     _save(entries)
+    try:
+        sessions.index(room, speaker, text, at)  # بحث بكل المحادثات — راجع sessions.py
+    except Exception:  # noqa: BLE001 — فشل الفهرسة ما يضيّع الرسالة نفسها
+        pass
 
 
 def history(room: str, limit: int = 60) -> list[dict]:

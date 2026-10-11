@@ -7,7 +7,7 @@ import os
 import shlex
 import subprocess
 
-from . import safety, sandbox, web
+from . import safety, sandbox, sessions, web
 
 WORKSPACE = os.path.join(os.path.dirname(__file__), "data", "workspace")
 
@@ -203,6 +203,13 @@ def web_fetch(args: dict) -> dict:
     return web.fetch(args.get("url", ""))
 
 
+def session_search(args: dict) -> dict:
+    """بحث بكل المحادثات السابقة (SQLite FTS5) — قراءة فقط."""
+    hits = sessions.search(args.get("query", ""), args.get("limit", 3))
+    return {"ok": True, "results": hits,
+            "note": "سجل محادثات فقط — لو ما لقيت شي، هذا ما يعني إنه ما صار؛ تحقق من المصدر نفسه."}
+
+
 REGISTRY = {
     "read_file": read_file,
     "write_file": write_file,
@@ -214,6 +221,7 @@ REGISTRY = {
     "browser_screenshot": browser_screenshot,
     "web_search": web_search,
     "web_fetch": web_fetch,
+    "session_search": session_search,
     "pc_read_file": pc_read_file,
     "pc_write_file": pc_write_file,
     "pc_list_dir": pc_list_dir,

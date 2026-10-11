@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
+from . import agent_memory, agent_skills, approval, bots, ceo, chatroom, sessions, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 _LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
@@ -2148,6 +2148,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    try:
+        indexed = sessions.backfill(rooms._ROOMS_FILE)
+        if indexed:
+            print(f"[web_chat] فهرسة {indexed} رسالة قديمة للبحث بالمحادثات")
+    except Exception as e:  # noqa: BLE001
+        print(f"[web_chat] تعذّرت فهرسة المحادثات القديمة: {e}")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"[web_chat] يستمع على http://{HOST}:{PORT}  (شات: /  —  لوحة التحكم: /dashboard)")
     if safety.pc_access_enabled():
