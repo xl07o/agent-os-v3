@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import set_key
 
-from . import approval, bots, ceo, chatroom, decision, env, evidence, kernel, metrics, rooms, router, safety, self_improve, spend, status
+from . import approval, bots, ceo, chatroom, decision, env, evidence, kernel, market, metrics, rooms, router, safety, self_improve, spend, status, widgets
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 _LOOPBACK_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
@@ -696,6 +696,34 @@ body{
 .bc-ceo b{color:var(--ember)}
 .bc-prop{font-size:.74rem;color:var(--amber);padding:5px 2px;border-bottom:1px solid var(--border)}
 
+/* ===== market widgets (widgets.py / market.py) ===== */
+.widgets-row{padding:0 20px 14px}
+.widget-add{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 15px;border-bottom:1px solid var(--border)}
+.widget-add select,.widget-add input{background:var(--panel2);border:1px solid var(--border);color:var(--txt);border-radius:9px;padding:7px 10px;font:inherit;font-size:.76rem}
+.widget-add input{flex:1;min-width:220px;direction:ltr;text-align:right}
+.widget-add button{background:var(--ember);color:#1a0904;border:none;border-radius:9px;padding:7px 16px;font:inherit;font-weight:800;font-size:.76rem;cursor:pointer}
+.widget-add small{font-size:.68rem;color:var(--muted);flex-basis:100%}
+.widget-add small.err{color:var(--red)}
+.widget-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;padding:14px 15px}
+.wcard{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;position:relative;min-height:150px}
+.wcard .w-x{position:absolute;top:8px;left:10px;background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer}
+.wcard .w-x:hover{color:var(--red)}
+.wcard .w-title{font-weight:800;font-size:.84rem;unicode-bidi:plaintext;text-align:right}
+.wcard .w-sub{font-size:.64rem;color:var(--muted);margin-top:2px;direction:ltr;text-align:right}
+.wcard .w-price{font-size:1.5rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:8px;direction:ltr;text-align:right}
+.wcard .w-price small{font-size:.7rem;color:var(--muted);font-weight:600}
+.w-up{color:var(--green)} .w-down{color:var(--red)}
+.wcard .w-chg{font-size:.74rem;font-weight:700;text-align:right}
+.wcard svg{width:100%;height:64px;margin-top:6px}
+.wcard .w-foot{font-size:.6rem;color:var(--muted);margin-top:4px}
+.wcard .w-err{font-size:.74rem;color:var(--red);margin-top:10px}
+.wcard table{width:100%;border-collapse:collapse;font-size:.72rem;margin-top:8px;font-variant-numeric:tabular-nums}
+.wcard td,.wcard th{padding:4px 3px;border-bottom:1px solid var(--border);text-align:right}
+.wcard th{color:var(--muted);font-weight:600;font-size:.64rem}
+.wcard td.sym{direction:ltr;font-weight:700}
+.wcard .w-total{margin-top:8px;font-size:.8rem;font-weight:800;direction:ltr;text-align:right}
+.widgets-empty{font-size:.76rem;color:var(--muted);padding:16px 15px}
+
 /* ===== agent ledger row ===== */
 .ledger-row{display:flex;gap:10px;padding:14px 20px;overflow-x:auto}
 .agent-card{
@@ -852,6 +880,20 @@ footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:cente
     <div class="bc-result hidden" id="bcResult"></div>
 
     <section class="ledger-row" id="ledgerRow"></section>
+
+    <section class="widgets-row">
+      <div class="panel">
+        <div class="panel-head"><h2>الأسواق — ودجت حيّة</h2><span class="panel-tag">المصدر: Yahoo Finance · تحديث كل دقيقة · قد يتأخر حسب السوق</span></div>
+        <div class="widget-add">
+          <select id="wType"><option value="stock">سهم</option><option value="watchlist">قائمة متابعة</option><option value="portfolio">محفظة</option></select>
+          <input id="wSymbol" placeholder="AAPL  أو  2222.SR  أو  BTC-USD" autocomplete="off">
+          <select id="wRange"><option value="1d">يوم (كل 5 دقائق)</option><option value="5d">5 أيام</option><option value="1mo">شهر</option><option value="6mo">6 شهور</option><option value="1y">سنة</option></select>
+          <button id="wAdd">أضف</button>
+          <small id="wNote">أو اكتب للرئيس التنفيذي فوق: "ابي أتابع أرامكو والبتكوين" — يقترح الودجت وأنت توافق.</small>
+        </div>
+        <div class="widget-grid" id="widgetGrid"></div>
+      </div>
+    </section>
 
     <section class="grid-main">
       <div class="col-left">
@@ -1339,6 +1381,100 @@ async function sendBroadcast(){
 document.getElementById('bcSend').addEventListener('click', sendBroadcast);
 document.getElementById('bcInput').addEventListener('keydown', e=>{ if(e.key==='Enter') sendBroadcast(); });
 
+/* ===== market widgets ===== */
+const W_HINTS = {
+  stock: ['AAPL  أو  2222.SR  أو  BTC-USD', 'أو اكتب للرئيس التنفيذي فوق: "ابي أتابع أرامكو والبتكوين" — يقترح الودجت وأنت توافق.'],
+  watchlist: ['2222.SR, AAPL, BTC-USD', 'رموز مفصولة بفاصلة — حد أقصى 12'],
+  portfolio: ['AAPL:10, 2222.SR:150', 'رمز:كمية لكل عنصر — الكميات منك أنت، والأسعار من السوق'],
+};
+function fmtNum(n, d){ return (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-US',{maximumFractionDigits:d==null?2:d}); }
+function chgHtml(chg, pct){
+  if(chg==null) return '<span>—</span>';
+  const cls = chg >= 0 ? 'w-up' : 'w-down';
+  return '<bdi dir="ltr" class="'+cls+'">'+(chg>=0?'+':'')+fmtNum(chg)+(pct==null?'':' ('+(pct>=0?'+':'')+fmtNum(pct)+'%)')+'</bdi>';
+}
+function sparkline(points){
+  if(!points || points.length < 2) return '';
+  const cs = points.map(p=>p.c), min = Math.min(...cs), max = Math.max(...cs), span = (max-min)||1;
+  const pts = cs.map((c,i)=>(i/(cs.length-1)*280).toFixed(1)+','+(60-(c-min)/span*54).toFixed(1)).join(' ');
+  const up = cs[cs.length-1] >= cs[0];
+  const col = up ? 'var(--green)' : 'var(--red)';
+  return '<svg viewBox="0 0 280 64" preserveAspectRatio="none" role="img" aria-label="رسم سعر الإغلاق خلال المدى">'
+    + '<polyline points="0,64 '+pts+' 280,64" fill="'+(up?'rgba(52,211,153,.10)':'rgba(248,113,113,.10)')+'" stroke="none"/>'
+    + '<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.6"/></svg>';
+}
+function timeOf(ts){ return ts ? new Date(ts*1000).toLocaleString('ar-SA',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}) : '—'; }
+const RANGE_AR = {'1d':'اليوم','5d':'5 أيام','1mo':'شهر','6mo':'6 شهور','1y':'سنة'};
+function widgetCard(w){
+  const d = w.data || {};
+  let body = '';
+  if(!d.ok){
+    body = '<div class="w-err">ما قدرنا نجيب السعر: '+escapeHtml(d.error||'خطأ غير معروف')+'</div>';
+  }else if(w.type === 'stock'){
+    body = '<div class="w-sub">'+escapeHtml(d.symbol)+' · '+escapeHtml(d.exchange||'')+(d.name?' · '+escapeHtml(d.name):'')+'</div>'
+      + '<div class="w-price">'+fmtNum(d.price)+' <small>'+escapeHtml(d.currency||'')+'</small></div>'
+      + '<div class="w-chg"><small style="color:var(--muted)">التغيّر خلال '+escapeHtml(RANGE_AR[d.range]||d.range)+':</small> '+chgHtml(d.change, d.change_pct)+'</div>'
+      + sparkline(d.points)
+      + '<div class="w-foot">آخر سعر من المصدر: '+escapeHtml(timeOf(d.market_time))+'</div>';
+  }else if(w.type === 'watchlist'){
+    body = '<table><tr><th>الرمز</th><th>السعر</th><th>اليوم</th></tr>'
+      + d.rows.map(r=>'<tr><td class="sym">'+escapeHtml(r.symbol||'')+'</td>'
+        + (r.ok ? '<td><bdi dir="ltr">'+fmtNum(r.price)+' <small>'+escapeHtml(r.currency||'')+'</small></bdi></td><td>'+chgHtml(r.change_pct==null?null:r.change, r.change_pct)+'</td>'
+                : '<td colspan="2" class="w-down">'+escapeHtml(r.error||'تعذّر')+'</td>')+'</tr>').join('')
+      + '</table>';
+  }else{
+    body = '<table><tr><th>الرمز</th><th>الكمية</th><th>السعر</th><th>القيمة</th></tr>'
+      + d.rows.map(r=>'<tr><td class="sym">'+escapeHtml(r.symbol)+'</td><td>'+fmtNum(r.qty,4)+'</td>'
+        + (r.ok ? '<td>'+fmtNum(r.price)+'</td><td><bdi dir="ltr">'+fmtNum(r.value)+' <small>'+escapeHtml(r.currency||'')+'</small></bdi></td>'
+                : '<td colspan="2" class="w-down">'+escapeHtml(r.error||'تعذّر')+'</td>')+'</tr>').join('')
+      + '</table>'
+      + Object.entries(d.totals||{}).map(([cur,val])=>'<div class="w-total">'+fmtNum(val)+' '+escapeHtml(cur)+'</div>').join('')
+      + ((d.missing||[]).length ? '<div class="w-foot w-down">غير محسوب بالمجموع (ما وصل سعره): '+escapeHtml(d.missing.join(', '))+'</div>' : '')
+      + '<div class="w-foot">مجموع لكل عملة على حدة — بدون تحويل عملات</div>';
+  }
+  return '<div class="wcard"><button class="w-x" data-wid="'+escapeHtml(w.id)+'" title="احذف">×</button>'
+    + '<div class="w-title">'+escapeHtml(w.title)+'</div>' + body
+    + (w.added_by==='ceo' ? '<div class="w-foot">أضافه الرئيس التنفيذي بموافقتك</div>' : '') + '</div>';
+}
+async function loadWidgets(){
+  try{
+    const r = await fetch('/api/widgets');
+    const d = await r.json();
+    document.getElementById('widgetGrid').innerHTML = d.widgets.length ? d.widgets.map(widgetCard).join('')
+      : '<div class="widgets-empty">ما فيه ودجت بعد — أضف سهم فوق، أو اطلب من الرئيس التنفيذي.</div>';
+  }catch(e){}
+}
+document.getElementById('wType').addEventListener('change', e=>{
+  const h = W_HINTS[e.target.value];
+  document.getElementById('wSymbol').placeholder = h[0];
+  const note = document.getElementById('wNote'); note.textContent = h[1]; note.className = '';
+  document.getElementById('wRange').style.display = e.target.value==='stock' ? '' : 'none';
+});
+document.getElementById('wAdd').addEventListener('click', async ()=>{
+  const type = document.getElementById('wType').value;
+  const raw = document.getElementById('wSymbol').value.trim();
+  const note = document.getElementById('wNote');
+  if(!raw) return;
+  let config;
+  if(type==='stock') config = {symbol: raw, range: document.getElementById('wRange').value};
+  else if(type==='watchlist') config = {symbols: raw.split(/[,،\\s]+/).filter(Boolean)};
+  else config = {holdings: raw.split(/[,،]+/).map(x=>x.trim()).filter(Boolean).map(x=>{ const [sym, q] = x.split(':'); return {symbol:(sym||'').trim(), qty:(q||'').trim()}; })};
+  const r = await fetch('/api/widgets/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:type, config:config})});
+  const d = await r.json();
+  if(!d.ok){ note.textContent = d.error; note.className = 'err'; return; }
+  document.getElementById('wSymbol').value = '';
+  note.textContent = 'انضاف.'; note.className = '';
+  loadWidgets();
+});
+document.getElementById('widgetGrid').addEventListener('click', async e=>{
+  const x = e.target.closest('button[data-wid]');
+  if(!x) return;
+  await fetch('/api/widgets/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:x.dataset.wid})});
+  loadWidgets();
+});
+loadWidgets();
+setInterval(loadWidgets, 60000);
+
 function tickClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('ar-SA'); }
 setInterval(tickClock, 1000); tickClock();
 
@@ -1530,6 +1666,24 @@ def _handle_budget(body: dict, is_local: bool) -> dict:
     return {"ok": True, "budget_usd": value, "claude_spend": spend.summary()}
 
 
+def _widgets_data() -> dict:
+    return {"widgets": widgets.snapshot(), "types": widgets.TYPES, "ranges": list(market.RANGES)}
+
+
+def _handle_widget_add(body: dict) -> dict:
+    try:
+        widget = widgets.add({"type": body.get("type"), "title": body.get("title"), "config": body.get("config")})
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "widget": widget}
+
+
+def _handle_widget_remove(body: dict) -> dict:
+    if not widgets.remove(str(body.get("id", ""))):
+        return {"ok": False, "error": "ودجت غير موجود"}
+    return {"ok": True}
+
+
 def _handle_chat(body: dict) -> dict:
     chat_id = str(body.get("chat_id") or uuid.uuid4())
     message = str(body.get("message", "")).strip()
@@ -1620,7 +1774,7 @@ def _ceo_dispatch(room: str, task: str) -> dict:
 def _ceo_proposals(resp: dict) -> list[dict]:
     """طلبات الـCEO اللي تنتظر موافقتك (توظيف/أداة/كود) بشكل موحّد للواجهة."""
     out = []
-    for key, label in (("hire_proposal", "توظيف"), ("grant_proposal", "أدوات")):
+    for key, label in (("hire_proposal", "توظيف"), ("grant_proposal", "أدوات"), ("widget_proposal", "ودجت")):
         p = resp.get(key)
         if p:
             out.append({"kind": label, "request_id": p["request_id"], "what": p["what"],
@@ -1809,6 +1963,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"messages": rooms.recent_all()})
         elif path == "/api/meeting":
             self._send_json(200, _meeting_data())
+        elif path == "/api/widgets":
+            self._send_json(200, _widgets_data())
         else:
             self.send_response(404)
             self.end_headers()
@@ -1857,6 +2013,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_room_send(body))
             elif path == "/api/room/confirm":
                 self._send_json(200, _handle_room_confirm(body))
+            elif path == "/api/widgets/add":
+                self._send_json(200, _handle_widget_add(body))
+            elif path == "/api/widgets/remove":
+                self._send_json(200, _handle_widget_remove(body))
             elif path == "/api/ceo":
                 self._send_json(200, _handle_ceo(body))
             elif path == "/api/rooms/broadcast":

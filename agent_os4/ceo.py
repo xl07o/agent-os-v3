@@ -20,7 +20,7 @@ import json
 import os
 import re
 
-from . import bots, brain, decision, learning, rooms, self_improve, spend, web
+from . import bots, brain, decision, learning, rooms, self_improve, spend, web, widgets
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _PENDING_FILE = os.path.join(_DATA_DIR, "ceo_pending.json")
@@ -39,11 +39,15 @@ _SPEC = """ردّك JSON فقط، بلا أي نص خارجه، بهذا الش�
  "assignments": [{{"bot": "مفتاح موظف موجود", "task": "المهمة له بوضوح"}}],
  "hire": null,
  "grant": null,
+ "widget": null,
  "code_change": null}}
 
 - assignments: صفر إلى {max_assign} موظفين من القائمة أعلاه فقط.
 - hire (لو تحتاج موظف جديد): {{"key": "english_snake_case", "title_ar": "...", "directorate": "واحدة من: {directorates}", "persona": "شخصية الموظف وخبرته ونطاقه", "allowed_tools": [من: {tools}], "why": "ليش نحتاجه", "first_task": "أول مهمة له"}}
 - grant (لو موظف موجود يحتاج أداة ما عنده): {{"bot": "...", "tools": [من: {tools}], "why": "..."}}
+- widget (لو صاحب الشركة يبي يتابع شي بلوحة التحكم): {{"type": "stock", "title": "...", "config": {{"symbol": "AAPL", "range": "1d"}}}}
+  أو {{"type": "watchlist", "config": {{"symbols": ["2222.SR", "BTC-USD"]}}}} أو {{"type": "portfolio", "config": {{"holdings": [{{"symbol": "AAPL", "qty": 10}}]}}}}
+  المدى من: {ranges}. رموز Yahoo Finance: تداول السعودي بـ .SR (أرامكو 2222.SR)، العملات الرقمية BTC-USD. المحفظة فقط لو صاحب الشركة ذكر الكميات بنفسه — لا تخترعها.
 - code_change (لو الطلب يحتاج تعديل كود agent_os4 نفسه): {{"file": "اسم_الملف.py", "goal": "وش يتغيّر بالضبط"}}"""
 
 
@@ -74,7 +78,7 @@ def _build_prompt(message: str) -> str:
     persona = _PERSONA.format(remaining=budget["remaining_usd"], budget=budget["budget_usd"])
     spec = _SPEC.format(
         max_assign=MAX_ASSIGNMENTS, directorates=", ".join(bots.DIRECTORATES),
-        tools=", ".join(sorted(bots.HIREABLE_TOOLS)),
+        tools=", ".join(sorted(bots.HIREABLE_TOOLS)), ranges=", ".join(widgets.market.RANGES),
     )
     experience = learning.context_for("ceo", message)
     parts = [persona, "الموظفون الحاليون:\n" + _roster_text()]
@@ -130,6 +134,12 @@ def parse_plan(text: str) -> dict | None:
         else:
             grant = {"bot": g["bot"], "tools": sorted(set(tools)), "why": str(g.get("why", ""))[:600]}
 
+    widget = None
+    if data.get("widget"):
+        widget, error = widgets.validate(data["widget"])
+        if error:
+            notes.append(f"اقتراح الودجت ما انقبل: {error}")
+
     code_change = None
     if isinstance(data.get("code_change"), dict):
         c = data["code_change"]
@@ -144,7 +154,7 @@ def parse_plan(text: str) -> dict | None:
 
     return {
         "reply": str(data.get("reply", "")).strip(),
-        "assignments": assignments, "hire": hire, "grant": grant,
+        "assignments": assignments, "hire": hire, "grant": grant, "widget": widget,
         "code_change": code_change, "notes": notes,
     }
 
@@ -165,6 +175,15 @@ def _propose_grant(grant: dict) -> dict:
     proposal = decision.propose(what=what, why=grant["why"], proposed_by="ceo")
     pending = _load_pending()
     pending[proposal["request_id"]] = {"type": "grant", "spec": grant}
+    _save_pending(pending)
+    return {"request_id": proposal["request_id"], "what": what, "independent_review": proposal["independent_review"]}
+
+
+def _propose_widget(widget: dict) -> dict:
+    what = f"إضافة ودجت للوحة التحكم: {widget['title']} ({widgets.TYPES[widget['type']]})"
+    proposal = decision.propose(what=what, why=json.dumps(widget["config"], ensure_ascii=False), proposed_by="ceo")
+    pending = _load_pending()
+    pending[proposal["request_id"]] = {"type": "widget", "spec": widget}
     _save_pending(pending)
     return {"request_id": proposal["request_id"], "what": what, "independent_review": proposal["independent_review"]}
 
@@ -236,6 +255,9 @@ def handle(message: str, dispatch) -> dict:
     if plan["grant"]:
         response["grant_proposal"] = _propose_grant(plan["grant"])
         rooms.post(rooms.EXECUTIVE, "ceo", f"اقترحت: {response['grant_proposal']['what']} — بانتظار موافقتك.")
+    if plan["widget"]:
+        response["widget_proposal"] = _propose_widget(plan["widget"])
+        rooms.post(rooms.EXECUTIVE, "ceo", f"اقترحت: {response['widget_proposal']['what']} — بانتظار موافقتك.")
     if plan["code_change"]:
         cc = plan["code_change"]
         rooms.post("code_bot", "ceo", f"عدّل {cc['file']}: {cc['goal']}")
@@ -290,6 +312,17 @@ def apply_decision(request_id: str, approved: bool, dispatch) -> dict | None:
         return None
     _save_pending(pending)
     spec = action["spec"]
+
+    if action["type"] == "widget":
+        if not approved:
+            rooms.post(rooms.EXECUTIVE, "ceo", f"تمام، ما أضفنا ودجت {spec['title']}.")
+            return {"applied": False}
+        try:
+            widget = widgets.add(spec, added_by="ceo")
+        except ValueError as e:
+            return {"applied": False, "note": str(e)}
+        rooms.post(rooms.EXECUTIVE, "ceo", f"أضفت ودجت {spec['title']} للوحة التحكم.")
+        return {"applied": True, "widget": widget, "note": "الودجت ظهر بلوحة التحكم"}
 
     if action["type"] == "grant":
         title = bots.BOTS.get(spec["bot"], {}).get("title_ar", spec["bot"])
