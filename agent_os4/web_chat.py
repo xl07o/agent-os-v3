@@ -18,7 +18,11 @@ import os
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import approval, bots, decision, kernel, metrics, router, safety, status
+from dotenv import set_key
+
+from . import approval, bots, decision, env, kernel, metrics, router, safety, status
+
+_LOOPBACK_IPS = {"127.0.0.1", "::1"}
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("OS4_WEB_CHAT_PORT", "8080"))
@@ -202,6 +206,16 @@ body{
 .gauge-wrap{display:flex;align-items:center;gap:10px}
 .gauge-wrap svg{width:52px;height:52px;flex:none}
 
+.pc-card{opacity:1 !important}
+.pc-row{display:flex;align-items:center;gap:10px;margin-top:2px}
+.switch{position:relative;display:inline-block;width:38px;height:21px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch .slider{position:absolute;inset:0;background:var(--dim);border-radius:99px;cursor:pointer;transition:.18s}
+.switch .slider::before{content:"";position:absolute;height:15px;width:15px;left:3px;top:3px;background:#e2e8f0;border-radius:50%;transition:.18s}
+.switch input:checked + .slider{background:var(--amber)}
+.switch input:checked + .slider::before{transform:translateX(17px)}
+.switch input:disabled + .slider{opacity:.5;cursor:not-allowed}
+
 .grid-main{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;padding:16px 22px 22px;align-items:start}
 @media(max-width:980px){.grid-main{grid-template-columns:1fr}}
 .col-left,.col-right{display:flex;flex-direction:column;gap:14px;min-width:0}
@@ -340,7 +354,8 @@ function kpiIcon(name){
     memory:'<rect x="4" y="4" width="16" height="16" rx="2.5"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="9" y1="9" x2="9" y2="20"/>',
     skills:'<path d="M12 3l2.4 5.6L20 9.3l-4.3 3.9L16.8 19 12 15.9 7.2 19l1.1-5.8L4 9.3l5.6-.7z"/>',
     decisions:'<path d="M4 6h16M4 12h10M4 18h7"/>',
-    bots:'<rect x="5" y="8" width="14" height="11" rx="2.2"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'
+    bots:'<rect x="5" y="8" width="14" height="11" rx="2.2"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+    pc:'<rect x="3" y="4" width="18" height="12" rx="1.6"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>'
   };
   return icons[name] || '';
 }
@@ -382,7 +397,14 @@ function renderKpis(d){
   html += kpi('البوتات النشطة', d.bots.length, '8 مديريات', {icon:'bots'});
   html += kpi('Claude', s.claude_configured?'مفعّل':'غير مفعّل', 'brain.py', {ok:s.claude_configured, off:!s.claude_configured});
   html += kpi('Daytona', s.daytona_configured?'مفعّل':'غير مفعّل', 'sandbox.py', {ok:s.daytona_configured, off:!s.daytona_configured});
-  html += kpi('الوصول الكامل للجهاز', d.pc_access_enabled?'مفعّل':'معطّل', d.pc_access_enabled?'⚠ نشط الآن':'افتراضي، آمن', {warn:d.pc_access_enabled, off:!d.pc_access_enabled});
+  html += '<div class="kpi pc-card'+(d.pc_access_enabled?' warn':' off')+'">'
+    + '<div class="klabel"><svg viewBox="0 0 24 24">'+kpiIcon('pc')+'</svg>الوصول الكامل للجهاز</div>'
+    + '<div class="pc-row">'
+    + '<label class="switch"><input type="checkbox" id="pcToggle"'+(d.pc_access_enabled?' checked':'')+'><span class="slider"></span></label>'
+    + '<span class="kval" style="font-size:1rem">'+(d.pc_access_enabled?'مفعّل':'معطّل')+'</span>'
+    + '</div>'
+    + '<div class="ksub" id="pcNote">'+(d.pc_access_enabled?'نشط الآن — كل أمر يحتاج موافقتك رغم ذلك':'يعمل فقط من جهازك (localhost)')+'</div>'
+    + '</div>';
   document.getElementById('overview').innerHTML = html;
 }
 
@@ -472,6 +494,23 @@ document.getElementById('search').addEventListener('input', e=>{
   renderBots(lastData, f);
   renderFeed(lastData, f);
 });
+document.getElementById('overview').addEventListener('change', async e=>{
+  if(e.target.id !== 'pcToggle') return;
+  const cb = e.target, enabling = cb.checked;
+  const note = document.getElementById('pcNote');
+  if(enabling && !confirm('تفعيل الوصول الكامل لهذا الجهاز؟ كل أمر/ملف يحتاج موافقتك قبل أي تنفيذ، لكن النطاق يصير جهازك كله.')){
+    cb.checked = false; return;
+  }
+  cb.disabled = true; note.textContent = 'جاري التحديث…';
+  try{
+    const r = await fetch('/api/dashboard/pc-toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enable:enabling})});
+    const d = await r.json();
+    if(!d.ok){ cb.checked = !enabling; note.textContent = d.error; }
+    else if(d.warning){ note.textContent = d.warning; }
+  }catch(err){ cb.checked = !enabling; note.textContent = 'تعذّر الاتصال: '+err.message; }
+  cb.disabled = false;
+  load();
+});
 
 function tickClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('ar-SA'); }
 setInterval(tickClock, 1000); tickClock();
@@ -538,6 +577,40 @@ def _handle_dashboard_decide(body: dict) -> dict:
         result = kernel.resume_task(request_id)
         return {"ok": True, "applied": True, "result": result}
     return {"ok": True, "applied": False, "note": "تم تسجيل القرار — تطبيقه الفعلي يحتاج أمره الخاص (مثل طبّق_توثيق)"}
+
+
+def _handle_pc_toggle(body: dict, client_ip: str) -> dict:
+    """تفعيل/تعطيل وضع الوصول الكامل للجهاز من اللوحة نفسها — بشرط واحد
+    لا استثناء له: الطلب لازم يجي من نفس الجهاز (loopback) حرفياً. لو
+    اللوحة مفتوحة عبر رابط Daytona/Fly.io مستضاف، أي زائر يوصل للرابط
+    يقدر يفتح /dashboard — لولا هذا الشرط كان بإمكانه يفعّل وصولاً
+    حقيقياً لجهاز المضيف عن بعد بضغطة واحدة بلا أي حاجز. هذا الشرط هو
+    الحاجز الحقيقي هنا، لا مجرد تلميح بالواجهة."""
+    if client_ip not in _LOOPBACK_IPS:
+        return {
+            "ok": False,
+            "error": "تفعيل/تعطيل وصول الجهاز من اللوحة متاح فقط من جهازك مباشرة "
+                     "(localhost) — لا عبر رابط مستضاف (Daytona/Fly.io)، منعاً لتفعيل "
+                     "عن بعد من أي زائر يملك الرابط.",
+        }
+
+    enable = bool(body.get("enable"))
+    os.environ["OS4_ALLOW_PC_ACCESS"] = "1" if enable else "0"
+    try:
+        set_key(env._ENV_PATH, "OS4_ALLOW_PC_ACCESS", "1" if enable else "0")
+        persisted = True
+    except OSError as e:  # noqa: BLE001 — فشل كتابة .env يُبلَّغ بصدق، التفعيل بالذاكرة نجح رغم ذلك
+        persisted = False
+        persisted_error = str(e)
+
+    what = "تفعيل وضع الوصول الكامل للجهاز" if enable else "تعطيل وضع الوصول الكامل للجهاز"
+    req = decision.propose(what=what, why="تغيير من لوحة التحكم مباشرة (localhost)", proposed_by="owner")
+    decision.approve(req["request_id"], decided_by="owner-dashboard-loopback")
+
+    result = {"ok": True, "pc_access_enabled": safety.pc_access_enabled(), "persisted": persisted}
+    if not persisted:
+        result["warning"] = "فُعِّل للجلسة الحالية فقط — فشلت كتابة .env على القرص: " + persisted_error
+    return result
 
 
 def _handle_chat(body: dict) -> dict:
@@ -631,6 +704,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, _handle_confirm(body))
             elif self.path == "/api/dashboard/decide":
                 self._send_json(200, _handle_dashboard_decide(body))
+            elif self.path == "/api/dashboard/pc-toggle":
+                self._send_json(200, _handle_pc_toggle(body, self.client_address[0]))
             else:
                 self._send_json(404, {"error": "مسار غير معروف"})
         except Exception as e:  # noqa: BLE001 — خطأ غير متوقع يُرجَع للمتصفح، لا يُسقط السيرفر
