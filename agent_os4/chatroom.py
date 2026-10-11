@@ -22,7 +22,7 @@ import os
 import re
 import time
 
-from . import bots, brain, decision
+from . import bots, brain, decision, roles
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _ROOM_FILE = os.path.join(_DATA_DIR, "chatroom.json")
@@ -40,6 +40,16 @@ _FINAL_PROMPT = (
 )
 
 _FINAL_RE = re.compile(r"التوصية\s*:\s*(.+)", re.S)
+
+_ARBITRATE_PROMPT = (
+    "موضوع النقاش: {topic}\n\nالنقاش كامل:\n{transcript}\n\n"
+    "الموظفون اختلفوا على هذه التوصيات:\n{options}\n\n"
+    "اختر التوصية الأفضل بناءً على قوة الأدلة والحجج بالنقاش — لا بعدد "
+    "المؤيدين فقط. اكتب بالضبط بهذا الشكل ولا شيء غيره:\n"
+    "الاختيار: <رقم>\nالسبب: <سببك بإيجاز>"
+)
+_CHOICE_RE = re.compile(r"الاختيار\s*:\s*(\d+)")
+_REASON_RE = re.compile(r"السبب\s*:\s*(.+)", re.S)
 
 
 def _load_room() -> list[dict]:
@@ -112,14 +122,37 @@ def _final_recommendation(bot_key: str, topic: str) -> tuple[str, bool]:
     return (match.group(1).strip() if match else reply.strip()), False
 
 
+def _arbitrate(topic: str, options: list[tuple[str, list[str]]]) -> tuple[int, str] | None:
+    """مدير القرارات (chief_decision_officer) يختار أفضل توصية من
+    المتعارضة ويذكر السبب. None لو فشل أو رده ما ينفهم — وقتها يرجع
+    resolve() للعرض القديم (كل الخيارات لك) بدل ما يخمّن."""
+    numbered = "\n".join(
+        f"{i}) {rec} — يؤيدها: {', '.join(supporters)}" for i, (rec, supporters) in enumerate(options, 1)
+    )
+    question = _ARBITRATE_PROMPT.format(
+        topic=topic, transcript=_transcript_text(_load_room()[-40:]), options=numbered,
+    )
+    try:
+        reply = roles.consult("chief_decision_officer", question)
+    except Exception:  # noqa: BLE001
+        return None
+    choice = _CHOICE_RE.search(reply)
+    if not choice or not 1 <= int(choice.group(1)) <= len(options):
+        return None
+    reason = _REASON_RE.search(reply)
+    return int(choice.group(1)) - 1, (reason.group(1).strip() if reason else "").strip()
+
+
 def resolve(bot_keys: list[str], topic: str, rounds: int = 1, proposed_by: str = "supreme_orchestrator") -> dict:
     """يدير نقاشاً عبر discuss()، يجمع توصية نهائية صريحة من كل بوت، ثم:
 
     - توصية موحّدة بين الكل (نص مطابق حرفياً) → Decision Engine: طلب
       موافقة واحد يحمل التوافق.
-    - توصيات مختلفة → Conflict Resolution: طلب موافقة منفصل لكل توصية
-      مختلفة، كل واحد يذكر مؤيديه ويشير للتعارض مع البقية — أنت تختار
-      أي واحد (أو ترفض الكل)، لا حسم آلي لخلاف حقيقي أبداً.
+    - توصيات مختلفة → مدير القرارات (chief_decision_officer) يختار
+      الأقوى حجةً ويذكر سببه، ويوصلك طلب موافقة واحد فيه اختياره
+      والخيارات الثانية كاملة — أنت توافق أو ترفض، ما ينفّذ شي بنفسه.
+      لو مدير القرارات فشل أو رده ما ينفهم: طلب موافقة منفصل لكل
+      توصية (الطريقة القديمة)، أنت تختار — لا تخمين.
     - **فشل كل البوتات أو بعضها** (لا مخ متاح، مثلاً) لا يُعامَل أبداً
       كتوصية أو كتوافق — بوت فشل يُستبعد من المقارنة ويُذكر صراحة. لو
       فشل الكل، ترجع outcome="failed" بلا أي طلب موافقة مفتوح على
@@ -155,6 +188,29 @@ def resolve(bot_keys: list[str], topic: str, rounds: int = 1, proposed_by: str =
             proposed_by=proposed_by,
         )
         return {"outcome": "consensus", "recommendation": rec_text, "supporters": supporters, "failed_bots": failed_bots, **result}
+
+    options = list(recommendations.items())
+    arbitration = _arbitrate(topic, options)
+    if arbitration is not None:
+        # تعارض حقيقي → مدير القرارات يختار ويشرح، وأنت توافق أو ترفض
+        # اختياره. الخيارات الثانية مذكورة كاملة بنص الطلب، ما تختفي.
+        idx, reason = arbitration
+        rec_text, supporters = options[idx]
+        alternatives = [{"recommendation": r, "supporters": s} for i, (r, s) in enumerate(options) if i != idx]
+        post("chief_decision_officer", f"حسمت التعارض: {rec_text}\nالسبب: {reason or '—'}")
+        alt_text = "\n".join(f"- {a['recommendation']} (يؤيدها: {', '.join(a['supporters'])})" for a in alternatives)
+        result = decision.propose(
+            what=f"نقاش جماعي (حسمه مدير القرارات): {topic}",
+            why=(
+                f"اختار مدير القرارات توصية {', '.join(supporters)}: {rec_text}\n\n"
+                f"السبب: {reason or '—'}\n\nالخيارات اللي ما اختارها:\n{alt_text}"
+            ),
+            proposed_by="chief_decision_officer",
+        )
+        return {
+            "outcome": "arbitrated", "recommendation": rec_text, "supporters": supporters,
+            "arbiter_reason": reason, "alternatives": alternatives, "failed_bots": failed_bots, **result,
+        }
 
     proposals = []
     for rec_text, supporters in recommendations.items():

@@ -23,8 +23,8 @@ ROLES: dict[str, dict] = {
     },
     # ===== Independent Decision Council =====
     "chief_decision_officer": {
-        "title_ar": "مسؤول القرار", "title_en": "Chief Decision Officer",
-        "persona": "قارن البدائل المطروحة بإيجاز واقترح الأقرب للهدف المذكور. اقتراحك ليس قراراً نهائياً — يمر ببوابة موافقة صاحب النظام دائماً.",
+        "title_ar": "مدير القرارات", "title_en": "Chief Decision Officer",
+        "persona": "أنت مدير القرارات: لما يختلف الموظفون، تقارن البدائل المطروحة بإنصاف وتختار الأقوى دليلاً وحجةً للهدف المذكور، وتذكر سببك بوضوح. اختيارك ليس قراراً نهائياً — يمر ببوابة موافقة صاحب النظام دائماً.",
     },
     "chief_risk_officer": {
         "title_ar": "مسؤول المخاطر", "title_en": "Chief Risk Officer",

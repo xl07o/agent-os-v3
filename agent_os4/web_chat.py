@@ -280,6 +280,7 @@ function roomColor(key){
   if(key===MONITOR) return '#ff6a3d';
   if(key===MEETING) return '#a78bfa';
   if(key==='executive') return '#fbbf24';
+  if(key==='chief_decision_officer') return '#f472b6';
   const r = roomsCache.find(x=>x.key===key);
   return (r && DIR_COLOR[r.directorate]) || '#687080';
 }
@@ -287,6 +288,7 @@ function speakerLabel(speaker, room){
   if(speaker==='owner') return 'أنت';
   if(speaker==='ceo') return 'الرئيس التنفيذي';
   if(speaker==='executive') return 'الإدارة العليا';
+  if(speaker==='chief_decision_officer') return 'مدير القرارات';
   return roomTitle(speaker || room);
 }
 function roomTitle(key){
@@ -373,7 +375,7 @@ async function loadThread(){
     wrap.innerHTML = d.messages.length ? d.messages.map(m=>{
       const mine = m.speaker === 'owner';
       const color = roomColor(m.speaker);
-      return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who" style="color:'+color+'">'+escapeHtml(roomTitle(m.speaker))+'</span>')+escapeHtml(m.text)+'</div>';
+      return '<div class="msg '+(mine?'user':'bot')+'">'+(mine?'':'<span class="who" style="color:'+color+'">'+escapeHtml(speakerLabel(m.speaker, m.speaker))+'</span>')+escapeHtml(m.text)+'</div>';
     }).join('') : '<div class="empty">ما فيه اجتماعات بعد — اختر الأقسام واكتب موضوعاً وابدأ</div>';
     reattachCards(wrap);
     wrap.scrollTop = 1e9;
@@ -446,6 +448,19 @@ function addMeetingOutcome(result){
     const e = document.createElement('div'); e.className='msg bot';
     e.textContent = 'فشل الاجتماع — كل البوتات تعذّر الوصول لها (لا إجماع، لا طلب موافقة فُتح على فراغ).';
     wrap.appendChild(e); wrap.scrollTop = 1e9; return;
+  }
+  if(result.outcome === 'arbitrated'){
+    const card = document.createElement('div'); card.className='outcome-card';
+    card.innerHTML = '<div class="oc-title">تعارض — حسمه مدير القرارات، والقرار الأخير لك</div>'
+      + '<div class="oc-rec">'+escapeHtml(result.recommendation)+'</div>'
+      + '<div class="oc-sup">يؤيدها: '+escapeHtml((result.supporters||[]).map(roomTitle).join('، '))+'</div>'
+      + '<div class="oc-sup"><b>سبب مدير القرارات:</b> '+escapeHtml(result.arbiter_reason||'—')+'</div>'
+      + '<div class="oc-sup"><b>الخيارات اللي ما اختارها:</b> '+escapeHtml((result.alternatives||[]).map(a=>a.recommendation+' ('+a.supporters.map(roomTitle).join('، ')+')').join(' | '))+'</div>'
+      + (result.independent_review ? '<div class="oc-sup">رأي المراجع المستقل: '+escapeHtml(result.independent_review)+'</div>' : '')
+      + '<div class="btns"><button data-decide="1" data-id="'+escapeHtml(result.request_id)+'">وافق</button>'
+      + '<button class="rej" data-decide="0" data-id="'+escapeHtml(result.request_id)+'">رفض</button></div>';
+    wrap.appendChild(card); keepCard(card); wrap.scrollTop = 1e9;
+    return;
   }
   const proposals = result.outcome === 'consensus'
     ? [{recommendation: result.recommendation, supporters: result.supporters, request_id: result.request_id, independent_review: result.independent_review}]
