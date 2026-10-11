@@ -109,8 +109,15 @@
 
 ```bash
 cd agent-os-v3
-python3 -m agent_os4.cli
+pip install -r agent_os4/requirements.txt
+# انسخ .env.example إلى .env وحط فيه ANTHROPIC_API_KEY (وتيليجرام لو تبي)
+
+python3 -m agent_os4.web_chat     # لوحة التحكم: http://localhost:8080/dashboard
+python3 -m agent_os4.cli          # أو من الطرفية
 ```
+
+بويندوز استخدم `python` أو `py` بدل `python3`. افتح اللوحة بـ`localhost`
+بالضبط (مو عنوان الشبكة) — تعديل السقف ووصول الجهاز يشتغلون منه بس.
 
 ## منظومة الأدوار والقرارات (`roles.py` + `decision.py`)
 
