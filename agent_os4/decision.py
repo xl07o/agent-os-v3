@@ -15,14 +15,13 @@ import json
 import os
 import time
 
-from . import approval, roles
+from . import approval, memory, obsidian, roles
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 _LEDGER_FILE = os.path.join(_DATA_DIR, "decision_ledger.json")
 
-# طلبات تلمس هذي الملفات تحصل على "مراجعة مستقلة" تلقائية (رأي ثانٍ من
-# برومبت منفصل) تُرفق مع الطلب — لا تمنع الطلب، فقط دليل إضافي لصاحب
-# النظام قبل ما يوافق.
+# ملفات حساسة تستاهل تحذيراً إضافياً صريح بنص المراجعة (مو شرط تفعيلها
+# — المراجعة الآن تصير لكل طلب بلا استثناء، راجع propose()).
 HIGH_RISK_MARKERS = ("safety.py", "approval.py", "decision.py", "roles.py")
 
 
@@ -43,18 +42,42 @@ def _append_ledger(entry: dict) -> None:
     os.replace(tmp, _LEDGER_FILE)
 
 
+def _review_context(what: str, why: str) -> str:
+    """يجمع سياقاً حقيقياً قبل المراجعة — ملاحظات Obsidian + ذكريات
+    مطابقة فعلياً لنص الطلب، لا رأياً مجرّداً بلا خبرة متراكمة. هذا
+    بالضبط ما يخلي المراجع "يعرف الصح عن الغلط" باستناد لتاريخ حقيقي،
+    لا تخميناً من صفر بكل مرة."""
+    query = f"{what} {why}"
+    parts = []
+    notes = obsidian.search(query, limit=4)
+    if notes:
+        parts.append("ملاحظات سابقة ذات صلة من Obsidian:\n" + "\n".join(
+            f"- [{n['folder']}/{n['file']}] {n['excerpt'][:220].strip()}" for n in notes
+        ))
+    mems = memory.recall(query, limit=4)
+    if mems:
+        parts.append("ذكريات سابقة ذات صلة:\n" + "\n".join(f"- {m[:220]}" for m in mems))
+    if any(marker in what for marker in HIGH_RISK_MARKERS):
+        parts.append("تنبيه: هذا الطلب يلمس ملفاً حساساً بالنظام نفسه (أمان/موافقة/أدوار) — راجعه بعناية أكبر من المعتاد.")
+    return "\n\n".join(parts)
+
+
 def propose(what: str, why: str, proposed_by: str = "owner", level: str = approval.NEEDS_APPROVAL) -> dict:
     """Decision Engine: يفتح طلباً عبر approval.py، ويرفق مراجعة مستقلة
-    تلقائياً (Independent Reviewer) لو الطلب يلمس ملفاً حساساً، ويسجّل
-    كل شيء بسجل الأدلة (Decision Evidence Ledger)."""
-    review = None
-    if any(marker in what for marker in HIGH_RISK_MARKERS):
-        try:
-            review = roles.consult("independent_reviewer", f"الطلب: {what}\n\nالسبب: {why}")
-        except Exception as e:  # noqa: BLE001 — فشل المراجعة لا يوقف الطلب، فقط يُسجَّل بصدق أنها لم تتم
-            review = f"(تعذّرت المراجعة المستقلة: {type(e).__name__}: {e})"
+    حقيقية **لكل طلب بلا استثناء** (Independent Reviewer، مغذّاة بسياق
+    فعلي من Obsidian/الذاكرة — راجع _review_context)، ويسجّل كل شيء
+    بسجل الأدلة (Decision Evidence Ledger).
 
-    full_why = why + (f"\n\n--- رأي المراجع المستقل ---\n{review}" if review else "")
+    المراجعة رأي إضافي يُعرَض لك دائماً، لا قرار بديل عنك — أنت من
+    يوافق أو يرفض دائماً عبر approve()/reject(). هذا ثابت لا استثناء له."""
+    context = _review_context(what, why)
+    try:
+        question = (f"{context}\n\n" if context else "") + f"الطلب: {what}\n\nالسبب: {why}"
+        review = roles.consult("independent_reviewer", question)
+    except Exception as e:  # noqa: BLE001 — فشل المراجعة لا يوقف الطلب، فقط يُسجَّل بصدق أنها لم تتم
+        review = f"(تعذّرت المراجعة المستقلة: {type(e).__name__}: {e})"
+
+    full_why = why + f"\n\n--- رأي المراجع المستقل ---\n{review}"
     _, req_id = approval.request(what=what, why=full_why, level=level, proposed_by=proposed_by)
     _append_ledger({
         "request_id": req_id, "what": what, "proposed_by": proposed_by,

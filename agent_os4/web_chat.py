@@ -58,6 +58,8 @@ header a:hover{background:rgba(34,211,238,.12)}
 .msg.user{background:linear-gradient(135deg,#2563eb,#1d4ed8);align-self:flex-start}
 .msg.bot{background:var(--panel);align-self:flex-end;border:1px solid var(--border)}
 .msg.err{background:#2a0a0a;align-self:flex-end;border:1px solid #7f1d1d;color:#fca5a5}
+.msg.review{background:transparent;align-self:flex-end;border:1px dashed #a78bfa55;color:#c9bbfa;font-size:.82rem}
+.msg.review b{color:#a78bfa}
 .irow{display:flex;gap:8px}
 #inp{flex:1;padding:11px 15px;background:var(--panel);border:1px solid var(--border);border-radius:11px;color:var(--txt);font-size:0.9rem;direction:rtl}
 #inp:focus{outline:none;border-color:var(--cyan)}
@@ -82,8 +84,15 @@ function addMsg(t,c){
   document.getElementById('msgs').appendChild(d);
   document.getElementById('msgs').scrollTop=1e9;
 }
-function addConfirm(what,why,reqId){
+function addConfirm(what,why,reqId,review){
   addMsg('يحتاج موافقتك: '+what+(why?' — '+why:''),'bot');
+  if(review){
+    const r=document.createElement('div');r.className='msg review';
+    const label=document.createElement('b');label.textContent='رأي المراجع المستقل:';
+    r.appendChild(label);r.appendChild(document.createElement('br'));
+    r.appendChild(document.createTextNode(review));
+    document.getElementById('msgs').appendChild(r);
+  }
   const row=document.createElement('div');
   row.className='irow';row.style.alignSelf='flex-end';
   row.innerHTML='<button onclick="confirmAction(\\''+reqId+'\\',true)">نفّذ</button>'
@@ -98,7 +107,7 @@ async function send(){
   try{
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m,chat_id:cid})});
     const d=await r.json();cid=d.chat_id||cid;
-    if(d.needs_confirmation){addConfirm(d.what,d.why,d.request_id);}
+    if(d.needs_confirmation){addConfirm(d.what,d.why,d.request_id,d.independent_review);}
     else{addMsg(d.reply||d.error||'(لا رد)',d.error?'err':'bot');}
   }catch(e){addMsg('خطأ: '+e.message,'err');}
   document.getElementById('btn').disabled=false;
@@ -110,7 +119,7 @@ async function confirmAction(reqId,approved){
   try{
     const r=await fetch('/api/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:reqId,approved:approved})});
     const d=await r.json();
-    if(d.needs_confirmation){addConfirm(d.what,d.why,d.request_id);}
+    if(d.needs_confirmation){addConfirm(d.what,d.why,d.request_id,d.independent_review);}
     else{addMsg(d.reply||d.error||'(لا رد)',d.error?'err':'bot');}
   }catch(e){addMsg('خطأ: '+e.message,'err');}
   document.getElementById('btn').disabled=false;
@@ -171,6 +180,8 @@ header.top small{color:var(--muted);font-size:.72rem;display:block;margin-top:2p
 .msg{padding:9px 13px;border-radius:11px;max-width:72%;white-space:pre-wrap;line-height:1.55;font-size:.86rem}
 .msg.user{background:linear-gradient(135deg,#2563eb,#1d4ed8);align-self:flex-start}
 .msg.bot{background:var(--panel);align-self:flex-end;border:1px solid var(--border)}
+.msg.review{background:transparent;align-self:flex-end;border:1px dashed #a78bfa55;color:#c9bbfa;font-size:.8rem}
+.msg.review b{color:#a78bfa}
 .msg .who{display:block;font-size:.64rem;color:rgba(255,255,255,.65);margin-bottom:3px}
 .mon-row{display:flex;gap:9px;align-items:baseline;font-size:.8rem;padding:6px 0;border-bottom:1px solid var(--border)}
 .mon-room{flex:none;font-size:.66rem;padding:2px 8px;border-radius:99px;border:1px solid var(--border)}
@@ -260,12 +271,18 @@ function renderHead(){
   document.getElementById('roomInputRow').className = selected===MONITOR ? 'irow hidden' : 'irow';
 }
 
-function addConfirm(what, why, reqId){
+function addConfirm(what, why, reqId, review){
   const wrap = document.getElementById('roomMsgs');
   const d = document.createElement('div');
   d.className = 'msg bot';
   d.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>يحتاج موافقتك: '+escapeHtml(what)+(why?' — '+escapeHtml(why):'');
   wrap.appendChild(d);
+  if(review){
+    const rv = document.createElement('div');
+    rv.className = 'msg review';
+    rv.innerHTML = '<b>رأي المراجع المستقل:</b><br>'+escapeHtml(review);
+    wrap.appendChild(rv);
+  }
   const row = document.createElement('div');
   row.className = 'confirm-row';
   row.innerHTML = '<button data-conf="1" data-id="'+reqId+'">نفّذ</button><button class="rej" data-conf="0" data-id="'+reqId+'">تجاهل</button>';
@@ -315,7 +332,7 @@ async function sendMsg(){
   try{
     const r = await fetch('/api/room/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,message:msg})});
     const d = await r.json();
-    if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id); }
+    if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id, d.independent_review); }
     else{
       const b = document.createElement('div'); b.className='msg bot';
       b.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
@@ -342,7 +359,7 @@ document.getElementById('roomMsgs').addEventListener('click', async e=>{
   const r = await fetch('/api/room/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room:selected,request_id:b.dataset.id,approved:b.dataset.conf==='1'})});
   const d = await r.json();
   const wrap = document.getElementById('roomMsgs');
-  if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id); }
+  if(d.needs_confirmation){ addConfirm(d.what, d.why, d.request_id, d.independent_review); }
   else{
     const el = document.createElement('div'); el.className='msg bot';
     el.innerHTML = '<span class="who">'+escapeHtml(roomTitle(selected))+'</span>'+escapeHtml(d.reply||d.error||'(لا رد)');
@@ -1174,6 +1191,7 @@ def _format_result(chat_id: str | None, result: dict) -> dict:
             "request_id": result["pending_request_id"],
             "what": result.get("what", ""),
             "why": result.get("why", ""),
+            "independent_review": result.get("independent_review", ""),
         })
         return payload
     if result.get("reply"):
@@ -1189,8 +1207,15 @@ def _format_room_result(room: str, result: dict) -> dict:
     بعد انتهاء الطلب."""
     if "pending_request_id" in result:
         what, why = result.get("what", ""), result.get("why", "")
-        rooms.post(room, room, f"يحتاج موافقتك: {what}" + (f" — {why}" if why else ""))
-        return {"needs_confirmation": True, "request_id": result["pending_request_id"], "what": what, "why": why}
+        review = result.get("independent_review", "")
+        note = f"يحتاج موافقتك: {what}" + (f" — {why}" if why else "")
+        if review:
+            note += f"\n\nرأي المراجع المستقل: {review}"
+        rooms.post(room, room, note)
+        return {
+            "needs_confirmation": True, "request_id": result["pending_request_id"],
+            "what": what, "why": why, "independent_review": review,
+        }
     reply = result.get("reply") or result.get("verdict", "")
     rooms.post(room, room, reply)
     return {"reply": reply}
