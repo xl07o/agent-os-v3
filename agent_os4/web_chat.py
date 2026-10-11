@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from dotenv import set_key
 
-from . import approval, bots, decision, env, kernel, metrics, router, safety, status
+from . import approval, bots, decision, env, evidence, kernel, metrics, router, safety, status
 
 _LOOPBACK_IPS = {"127.0.0.1", "::1"}
 
@@ -128,18 +128,19 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <title>لوحة تحكم agent_os4</title>
 <style>
 :root{
-  --bg:#06090f; --bg2:#0a0f18; --panel:#0c1220; --panel2:#0f1626; --border:#1c2740;
-  --txt:#e6edf7; --muted:#64748b; --dim:#3b4961;
+  --bg:#060708; --bg2:#0a0b0d; --panel:#0b0d10; --panel2:#0e1114; --border:#1e2228;
+  --txt:#eef1f5; --muted:#687080; --dim:#2c323c;
   --cyan:#22d3ee; --cyan-dim:#0e7490; --violet:#a78bfa; --amber:#fbbf24; --red:#f87171; --green:#34d399; --pink:#f472b6; --blue:#60a5fa;
-  --glow-cyan:0 0 24px -4px rgba(34,211,238,.45); --glow-amber:0 0 24px -4px rgba(251,191,36,.45); --glow-red:0 0 24px -4px rgba(248,113,113,.5);
+  --ember:#ff6a3d; --ember-dim:#b3291f; --ember-glow:0 0 32px -6px rgba(255,106,61,.55);
+  --glow-cyan:0 0 24px -4px rgba(34,211,238,.4); --glow-amber:0 0 24px -4px rgba(251,191,36,.45); --glow-red:0 0 24px -4px rgba(248,113,113,.5);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
   background:
-    radial-gradient(1100px 600px at 85% -10%, rgba(34,211,238,.08), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(167,139,250,.07), transparent 60%),
+    radial-gradient(1000px 520px at 50% 0%, rgba(255,90,50,.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(34,211,238,.05), transparent 60%),
     var(--bg);
   color:var(--txt); min-height:100vh;
 }
@@ -150,98 +151,143 @@ body{
 
 .shell{display:flex;min-height:100vh}
 .sidebar{
-  width:58px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;
+  width:54px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;
   padding:16px 0;background:linear-gradient(180deg,var(--panel),var(--bg2));
   border-left:1px solid var(--border);
 }
 .sidebar .brand{
-  width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--cyan),var(--violet));color:#04131a;font-weight:800;font-size:.72rem;
-  margin-bottom:14px;box-shadow:var(--glow-cyan);
+  width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--ember),var(--ember-dim));color:#1a0804;font-weight:800;font-size:.68rem;
+  margin-bottom:14px;box-shadow:var(--ember-glow);
 }
 .navicon{
-  width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;
   color:var(--muted);text-decoration:none;transition:.15s;position:relative;
 }
-.navicon svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.navicon:hover{color:var(--cyan);background:rgba(34,211,238,.08)}
+.navicon svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.navicon:hover{color:var(--ember);background:rgba(255,106,61,.08)}
 .navicon-chat{margin-top:auto;color:var(--violet)}
 .navicon-chat:hover{background:rgba(167,139,250,.1)}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
-.topbar{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 22px;
-  border-bottom:1px solid var(--border);background:rgba(10,15,24,.7);backdrop-filter:blur(8px);
-  position:sticky;top:0;z-index:5;flex-wrap:wrap;
+
+/* ===== ticker (top identity + live stat strip) ===== */
+.ticker{
+  display:flex;align-items:center;gap:18px;padding:10px 20px;border-bottom:1px solid var(--border);
+  background:rgba(10,11,13,.85);backdrop-filter:blur(8px);position:sticky;top:0;z-index:6;flex-wrap:wrap;
 }
-.topbar-left{display:flex;align-items:baseline;gap:10px}
-.topbar-left h1{font-size:1.05rem;letter-spacing:.2px;font-weight:700;display:flex;align-items:center;gap:8px}
-.topbar-left .subtitle{color:var(--muted);font-size:.78rem}
-.pulse-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2s infinite}
-.pulse-dot.err{background:var(--red);box-shadow:0 0 0 0 rgba(248,113,113,.6);animation:pulseRed 1.4s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 8px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
-@keyframes pulseRed{0%{box-shadow:0 0 0 0 rgba(248,113,113,.6)}70%{box-shadow:0 0 0 8px rgba(248,113,113,0)}100%{box-shadow:0 0 0 0 rgba(248,113,113,0)}}
-.topbar-right{display:flex;align-items:center;gap:10px}
+.tick-brand{display:flex;align-items:center;gap:9px;flex:none}
+.tick-logo{
+  font-weight:900;font-size:.72rem;letter-spacing:.5px;color:#1a0804;background:linear-gradient(135deg,var(--ember),#ffb199);
+  padding:5px 9px;border-radius:7px;box-shadow:var(--ember-glow);
+}
+.tick-id b{display:block;font-size:.88rem;letter-spacing:.3px}
+.tick-id small{color:var(--muted);font-size:.66rem}
+.tick-stats{display:flex;align-items:stretch;gap:0;flex:1;overflow-x:auto;min-width:0}
+.tstat{
+  display:flex;flex-direction:column;justify-content:center;padding:2px 18px;border-right:1px solid var(--border);
+  white-space:nowrap;
+}
+.tstat:first-child{border-right:none;padding-right:0}
+.tstat b{font-size:1.05rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+.tstat small{color:var(--muted);font-size:.64rem;letter-spacing:.2px}
+.tstat.warn b{color:var(--amber)}
+.tick-right{display:flex;align-items:center;gap:10px;flex:none}
 .search{
-  background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:8px 12px;color:var(--txt);
-  font-size:.82rem;width:220px;direction:rtl;
+  background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--txt);
+  font-size:.78rem;width:160px;direction:rtl;
 }
-.search:focus{outline:none;border-color:var(--cyan-dim)}
-.clock{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.8rem;min-width:70px;text-align:center}
+.search:focus{outline:none;border-color:var(--ember-dim)}
+.pulse-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pulse 2s infinite}
+.pulse-dot.err{background:var(--red);box-shadow:0 0 0 0 rgba(248,113,113,.6);animation:pulseRed 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 7px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+@keyframes pulseRed{0%{box-shadow:0 0 0 0 rgba(248,113,113,.6)}70%{box-shadow:0 0 0 7px rgba(248,113,113,0)}100%{box-shadow:0 0 0 0 rgba(248,113,113,0)}}
+.clock{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.74rem;min-width:62px;text-align:center}
 
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;padding:18px 22px 0}
-.kpi{
-  background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:14px;
-  padding:14px 16px;position:relative;overflow:hidden;
+/* ===== status strip ===== */
+.status-strip{display:flex;align-items:center;gap:8px;padding:8px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.pill{
+  display:flex;align-items:center;gap:6px;font-size:.68rem;color:var(--muted);background:var(--panel2);
+  border:1px solid var(--border);padding:4px 10px;border-radius:99px;
 }
-.kpi::after{content:"";position:absolute;inset:0;border-radius:14px;padding:1px;pointer-events:none;
-  background:linear-gradient(140deg,rgba(255,255,255,.06),transparent 40%)}
-.kpi .klabel{color:var(--muted);font-size:.72rem;display:flex;align-items:center;gap:6px;margin-bottom:8px}
-.kpi .klabel svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8}
-.kpi .kval{font-size:1.65rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
-.kpi .ksub{color:var(--muted);font-size:.68rem;margin-top:5px}
-.kpi.warn{border-color:rgba(251,191,36,.35);box-shadow:var(--glow-amber)}
-.kpi.ok-glow{border-color:rgba(52,211,153,.3)}
-.kpi.off{opacity:.55}
-.gauge-wrap{display:flex;align-items:center;gap:10px}
-.gauge-wrap svg{width:52px;height:52px;flex:none}
-
-.pc-card{opacity:1 !important}
-.pc-row{display:flex;align-items:center;gap:10px;margin-top:2px}
-.switch{position:relative;display:inline-block;width:38px;height:21px;flex:none}
+.pill b{color:var(--txt);font-weight:700}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--dim)}
+.pill.ok .dot{background:var(--green)}
+.pill.off .dot{background:var(--dim)}
+.pill.warn{border-color:rgba(251,191,36,.4)}
+.pill.warn .dot{background:var(--amber)}
+.switch{position:relative;display:inline-block;width:32px;height:18px;flex:none}
 .switch input{opacity:0;width:0;height:0}
 .switch .slider{position:absolute;inset:0;background:var(--dim);border-radius:99px;cursor:pointer;transition:.18s}
-.switch .slider::before{content:"";position:absolute;height:15px;width:15px;left:3px;top:3px;background:#e2e8f0;border-radius:50%;transition:.18s}
+.switch .slider::before{content:"";position:absolute;height:13px;width:13px;left:2.5px;top:2.5px;background:#e2e8f0;border-radius:50%;transition:.18s}
 .switch input:checked + .slider{background:var(--amber)}
-.switch input:checked + .slider::before{transform:translateX(17px)}
+.switch input:checked + .slider::before{transform:translateX(14px)}
 .switch input:disabled + .slider{opacity:.5;cursor:not-allowed}
 
-.grid-main{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;padding:16px 22px 22px;align-items:start}
-@media(max-width:980px){.grid-main{grid-template-columns:1fr}}
+/* ===== agent ledger row ===== */
+.ledger-row{display:flex;gap:10px;padding:14px 20px;overflow-x:auto}
+.agent-card{
+  flex:0 0 190px;background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--border);
+  border-radius:12px;padding:12px 13px;position:relative;
+}
+.agent-card.active{box-shadow:0 0 0 1px var(--accent) inset}
+.ac-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.ac-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px -1px var(--accent);flex:none}
+.ac-name{font-size:.8rem;font-weight:700}
+.ac-role{font-size:.63rem;color:var(--muted)}
+.ac-status{margin-right:auto;font-size:.6rem;padding:2px 7px;border-radius:99px;border:1px solid var(--border);color:var(--muted)}
+.ac-status.on{color:var(--accent);border-color:var(--accent)}
+.ac-tools{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px;min-height:20px}
+.ac-bars{display:flex;height:5px;border-radius:4px;overflow:hidden;background:var(--dim);margin-bottom:7px}
+.ac-bars span{height:100%}
+.ac-foot{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted)}
+.ac-foot b{color:var(--txt);font-variant-numeric:tabular-nums}
+
+/* ===== main grid ===== */
+.grid-main{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;padding:0 20px 16px;align-items:start}
+@media(max-width:1040px){.grid-main{grid-template-columns:1fr}}
 .col-left,.col-right{display:flex;flex-direction:column;gap:14px;min-width:0}
 
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden}
-.panel-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)}
-.panel-head h2{font-size:.85rem;font-weight:700;color:#cbd5e1}
-.panel-tag{font-size:.65rem;color:var(--cyan);border:1px solid rgba(34,211,238,.35);padding:2px 8px;border-radius:99px;background:rgba(34,211,238,.06)}
-.badge{font-size:.72rem;background:var(--dim);color:var(--txt);min-width:20px;text-align:center;padding:2px 7px;border-radius:99px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-bottom:1px solid var(--border)}
+.panel-head h2{font-size:.82rem;font-weight:700;color:#d7dde6}
+.panel-tag{font-size:.63rem;color:var(--ember);border:1px solid rgba(255,106,61,.35);padding:2px 8px;border-radius:99px;background:rgba(255,106,61,.07)}
+.badge{font-size:.7rem;background:var(--dim);color:var(--txt);min-width:19px;text-align:center;padding:2px 7px;border-radius:99px}
 .badge.has{background:rgba(251,191,36,.18);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
 
-#graph{width:100%;height:290px;display:block}
-.legend{display:flex;flex-wrap:wrap;gap:8px 14px;padding:10px 16px 14px;border-top:1px solid var(--border)}
-.legend span{font-size:.68rem;color:var(--muted);display:flex;align-items:center;gap:5px}
-.legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+/* ===== vortex ===== */
+.vortex-wrap{position:relative;height:330px}
+#vortexCanvas{width:100%;height:100%;display:block}
+.vortex-stat{
+  position:absolute;background:rgba(11,13,16,.72);backdrop-filter:blur(4px);border:1px solid var(--border);
+  border-radius:9px;padding:6px 10px;pointer-events:none;
+}
+.vortex-stat b{display:block;font-size:.98rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ember)}
+.vortex-stat small{color:var(--muted);font-size:.6rem}
+.vs-tl{top:10px;right:10px}
+.vs-tr{top:10px;left:10px}
+.vs-bl{bottom:10px;right:10px}
+.vs-br{bottom:10px;left:10px}
+.legend{display:flex;flex-wrap:wrap;gap:7px 13px;padding:10px 15px 13px;border-top:1px solid var(--border)}
+.legend span{font-size:.64rem;color:var(--muted);display:flex;align-items:center;gap:5px}
+.legend i{width:7px;height:7px;border-radius:50%;display:inline-block}
 
-.bots-list{padding:6px 10px 10px}
-.bot-row{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:9px;font-size:.8rem}
-.bot-row:hover{background:var(--panel2)}
-.bot-dot{width:9px;height:9px;border-radius:50%;flex:none}
-.bot-name{font-weight:600;flex:none;min-width:118px}
-.bot-dir{color:var(--muted);font-size:.72rem;flex:none}
-.bot-tools{display:flex;gap:5px;flex-wrap:wrap;margin-right:auto}
-.tag{font-size:.65rem;background:var(--panel2);border:1px solid var(--border);color:#9fb0c8;padding:2px 7px;border-radius:7px}
-.bot-usage{font-size:.68rem;color:var(--cyan);min-width:30px;text-align:left}
+/* ===== bottom mini charts ===== */
+.grid-sub{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+@media(max-width:700px){.grid-sub{grid-template-columns:1fr}}
+.panel.mini .panel-head{padding:10px 13px}
+.panel.mini h2{font-size:.72rem}
+.panel.mini svg{width:100%;height:112px;display:block}
 
+/* ===== gate (approval) panel ===== */
+.gate-body{padding:16px 16px 6px;display:flex;align-items:center;gap:14px}
+.gate-body svg.g{width:78px;height:78px;flex:none}
+.gate-num{font-size:1.5rem;font-weight:800}
+.gate-sub{color:var(--muted);font-size:.72rem;margin-top:2px}
+.trend-wrap{padding:0 16px 14px}
+.trend-wrap svg{width:100%;height:46px;display:block}
+
+/* ===== pending / feed (carried over) ===== */
 .pending-list{padding:10px}
 .pending-card{
   background:var(--panel2);border:1px solid var(--border);border-radius:11px;padding:11px 13px;margin-bottom:9px;
@@ -260,12 +306,12 @@ button.rej{background:var(--panel);color:var(--txt);border:1px solid var(--borde
 button.rej:hover{border-color:var(--red);color:var(--red)}
 
 .terminal{
-  font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:.74rem;max-height:340px;overflow-y:auto;padding:4px 0;
+  font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:.72rem;max-height:280px;overflow-y:auto;padding:4px 0;
 }
-.trow{display:flex;gap:9px;padding:7px 16px;border-right:2px solid transparent;align-items:baseline}
+.trow{display:flex;gap:9px;padding:6px 15px;border-right:2px solid transparent;align-items:baseline}
 .trow:hover{background:var(--panel2)}
 .trow .tt{color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
-.trow .tstage{flex:none;font-weight:700;width:76px}
+.trow .tstage{flex:none;font-weight:700;width:70px}
 .trow .twhat{color:#c3cedd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trow .tby{color:var(--muted);flex:none}
 .trow.proposed{border-color:rgba(96,165,250,.5)}
@@ -275,9 +321,9 @@ button.rej:hover{border-color:var(--red);color:var(--red)}
 .trow.rejected{border-color:rgba(248,113,113,.5)}
 .trow.rejected .tstage{color:var(--red)}
 
-.empty{color:var(--muted);font-size:.82rem;text-align:center;padding:24px 10px}
+.empty{color:var(--muted);font-size:.8rem;text-align:center;padding:22px 10px}
 .hidden{display:none !important}
-footer{padding:14px 22px 22px;color:var(--dim);font-size:.7rem;text-align:center}
+footer{padding:12px 20px 20px;color:var(--dim);font-size:.68rem;text-align:center}
 </style>
 </head>
 <body>
@@ -285,42 +331,72 @@ footer{padding:14px 22px 22px;color:var(--dim);font-size:.7rem;text-align:center
   <aside class="sidebar">
     <div class="brand">OS4</div>
     <nav>
-      <a href="#overview" class="navicon" title="نظرة عامة"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></a>
-      <a href="#network" class="navicon" title="شبكة البوتات"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="4" cy="5" r="1.8"/><circle cx="20" cy="5" r="1.8"/><circle cx="4" cy="19" r="1.8"/><circle cx="20" cy="19" r="1.8"/><line x1="10.2" y1="10.6" x2="5.4" y2="6.2"/><line x1="13.8" y1="10.6" x2="18.6" y2="6.2"/><line x1="10.2" y1="13.4" x2="5.4" y2="17.8"/><line x1="13.8" y1="13.4" x2="18.6" y2="17.8"/></svg></a>
-      <a href="#pending" class="navicon" title="طلبات معلّقة"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 3.2"/></svg></a>
+      <a href="#ledger" class="navicon" title="البوتات"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></a>
+      <a href="#vortex" class="navicon" title="الدوّامة"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/><circle cx="4" cy="5" r="1.8"/><circle cx="20" cy="5" r="1.8"/><circle cx="4" cy="19" r="1.8"/><circle cx="20" cy="19" r="1.8"/><line x1="10.2" y1="10.6" x2="5.4" y2="6.2"/><line x1="13.8" y1="10.6" x2="18.6" y2="6.2"/><line x1="10.2" y1="13.4" x2="5.4" y2="17.8"/><line x1="13.8" y1="13.4" x2="18.6" y2="17.8"/></svg></a>
+      <a href="#gate" class="navicon" title="بوابة الموافقة"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 3.2"/></svg></a>
+      <a href="#pending" class="navicon" title="طلبات معلّقة"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></a>
       <a href="#feed" class="navicon" title="السجل الحي"><svg viewBox="0 0 24 24"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 3z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/></svg></a>
-      <a href="#bots" class="navicon" title="البوتات"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="2.2"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/><circle cx="9.5" cy="13.2" r="1"/><circle cx="14.5" cy="13.2" r="1"/></svg></a>
     </nav>
     <a href="/" class="navicon navicon-chat" title="الشات"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></a>
   </aside>
 
   <div class="main">
-    <header class="topbar">
-      <div class="topbar-left">
-        <h1>لوحة تحكم agent_os4 <span class="pulse-dot" id="pulse"></span></h1>
-        <span class="subtitle">نواة واحدة · بوابة موافقة واحدة · بيانات حية فقط</span>
+    <header class="ticker">
+      <div class="tick-brand">
+        <span class="tick-logo">OS4</span>
+        <div class="tick-id"><b>AGENT_OS4</b><small>نواة واحدة · بوابة موافقة واحدة</small></div>
       </div>
-      <div class="topbar-right">
-        <input id="search" class="search" placeholder="فلتر البوتات أو السجل…">
+      <div class="tick-stats" id="tickStats"></div>
+      <div class="tick-right">
+        <input id="search" class="search" placeholder="فلتر…">
+        <span class="pulse-dot" id="pulse"></span>
         <span class="clock" id="clock">--:--:--</span>
       </div>
     </header>
 
-    <section class="kpi-row" id="overview"></section>
+    <div class="status-strip" id="statusStrip"></div>
+
+    <section class="ledger-row" id="ledgerRow"></section>
 
     <section class="grid-main">
       <div class="col-left">
-        <div class="panel" id="network">
-          <div class="panel-head"><h2>شبكة البوتات (حول نواة kernel.py)</h2><span class="panel-tag">مباشر</span></div>
-          <svg id="graph" viewBox="0 0 560 290"></svg>
+        <div class="panel" id="vortex">
+          <div class="panel-head"><h2>الدوّامة — شبكة البوتات حول kernel.py</h2><span class="panel-tag">مباشر</span></div>
+          <div class="vortex-wrap">
+            <canvas id="vortexCanvas"></canvas>
+            <div class="vortex-stat vs-tl"><b id="vsActive">0/0</b><small>عُقَد نشطة</small></div>
+            <div class="vortex-stat vs-tr"><b id="vsRate">—</b><small>تماسك القرار</small></div>
+            <div class="vortex-stat vs-bl"><b id="vsTotal">0</b><small>قرارات كلية</small></div>
+            <div class="vortex-stat vs-br"><b id="vsPending">0</b><small>بانتظار الحسم</small></div>
+          </div>
           <div class="legend" id="legend"></div>
         </div>
-        <div class="panel" id="bots">
-          <div class="panel-head"><h2>البوتات المسجّلة</h2></div>
-          <div class="bots-list" id="botsList"></div>
+
+        <div class="grid-sub">
+          <div class="panel mini">
+            <div class="panel-head"><h2>نمو القرارات</h2></div>
+            <svg id="chartGrowth" viewBox="0 0 280 112"></svg>
+          </div>
+          <div class="panel mini">
+            <div class="panel-head"><h2>أثر القرارات بالزمن</h2></div>
+            <svg id="chartSpikes" viewBox="0 0 280 112"></svg>
+          </div>
+          <div class="panel mini">
+            <div class="panel-head"><h2>خريطة الترابط</h2></div>
+            <svg id="chartSynapse" viewBox="0 0 280 112"></svg>
+          </div>
         </div>
       </div>
+
       <div class="col-right">
+        <div class="panel" id="gate">
+          <div class="panel-head"><h2>بوابة الموافقة — الإشارة للتنفيذ</h2></div>
+          <div class="gate-body">
+            <svg class="g" id="gateGauge"></svg>
+            <div><div class="gate-num" id="gateNum">0/0</div><div class="gate-sub">موافَق / محسوم</div></div>
+          </div>
+          <div class="trend-wrap"><svg id="gateTrend" viewBox="0 0 280 46"></svg></div>
+        </div>
         <div class="panel" id="pending">
           <div class="panel-head"><h2>طلبات معلّقة بانتظار موافقتك</h2><span class="badge" id="pendingBadge">0</span></div>
           <div class="pending-list" id="pendingList"></div>
@@ -347,107 +423,216 @@ const DIR_LABEL = {
 };
 let lastData = null;
 
-function kpiIcon(name){
-  const icons = {
-    pending:'<path d="M12 7v5l3.2 3.2"/><circle cx="12" cy="12" r="9"/>',
-    rate:'<path d="M3 17l5-5 4 4 8-8"/>',
-    memory:'<rect x="4" y="4" width="16" height="16" rx="2.5"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="9" y1="9" x2="9" y2="20"/>',
-    skills:'<path d="M12 3l2.4 5.6L20 9.3l-4.3 3.9L16.8 19 12 15.9 7.2 19l1.1-5.8L4 9.3l5.6-.7z"/>',
-    decisions:'<path d="M4 6h16M4 12h10M4 18h7"/>',
-    bots:'<rect x="5" y="8" width="14" height="11" rx="2.2"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
-    pc:'<rect x="3" y="4" width="18" height="12" rx="1.6"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/>'
-  };
-  return icons[name] || '';
-}
-function kpi(label, value, sub, opts){
-  opts = opts || {};
-  const cls = ['kpi']; if(opts.warn) cls.push('warn'); if(opts.ok) cls.push('ok-glow'); if(opts.off) cls.push('off');
-  return '<div class="'+cls.join(' ')+'">'
-    + '<div class="klabel"><svg viewBox="0 0 24 24">'+kpiIcon(opts.icon)+'</svg>'+label+'</div>'
-    + '<div class="kval">'+value+'</div>'
-    + (sub?'<div class="ksub">'+sub+'</div>':'')
-    + '</div>';
-}
-function gaugeSvg(pct, color){
-  const r=21, c=2*Math.PI*r, off=c*(1-pct/100);
-  return '<svg viewBox="0 0 52 52">'
-    +'<circle cx="26" cy="26" r="'+r+'" fill="none" stroke="#1c2740" stroke-width="5"/>'
-    +'<circle cx="26" cy="26" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="5" stroke-linecap="round" '
-    +'stroke-dasharray="'+c+'" stroke-dashoffset="'+off+'" transform="rotate(-90 26 26)" style="transition:stroke-dashoffset .5s"/>'
-    +'<text x="26" y="30" text-anchor="middle" font-size="12" fill="#e6edf7" font-weight="700">'+Math.round(pct)+'%</text>'
-    +'</svg>';
-}
 function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function timeShort(at){ return (at||'').split(' ')[1] || at || ''; }
-
-function renderKpis(d){
-  const m = d.metrics, s = d.status, pendN = d.pending_approvals.length;
-  const rate = m.decisions.approval_rate;
-  const ratePct = rate==null ? 0 : Math.round(rate*100);
-  const rateColor = rate==null ? '#3b4961' : (ratePct>=70?'#34d399':ratePct>=40?'#fbbf24':'#f87171');
-  let html = '';
-  html += kpi('طلبات معلّقة', pendN, pendN?'تحتاج قرارك الآن':'لا شيء بالانتظار', {icon:'pending', warn:pendN>0});
-  html += '<div class="kpi'+(rate==null?' off':'')+'"><div class="klabel"><svg viewBox="0 0 24 24">'+kpiIcon('rate')+'</svg>معدّل الموافقة</div>'
-    + '<div class="gauge-wrap">'+gaugeSvg(ratePct, rateColor)+'<div><div class="kval" style="font-size:1.1rem">'+m.decisions.approved+'/'+(m.decisions.approved+m.decisions.rejected)+'</div><div class="ksub">موافَق/محسوم</div></div></div></div>';
-  html += kpi('إجمالي القرارات', m.decisions.total, m.decisions.proposed+' مُقترَحة', {icon:'decisions'});
-  html += kpi('سجلات الذاكرة', s.memory_entries, 'memory.py', {icon:'memory'});
-  html += kpi('مهارات مسجّلة', m.skills_registered, 'skills.py', {icon:'skills'});
-  html += kpi('البوتات النشطة', d.bots.length, '8 مديريات', {icon:'bots'});
-  html += kpi('Claude', s.claude_configured?'مفعّل':'غير مفعّل', 'brain.py', {ok:s.claude_configured, off:!s.claude_configured});
-  html += kpi('Daytona', s.daytona_configured?'مفعّل':'غير مفعّل', 'sandbox.py', {ok:s.daytona_configured, off:!s.daytona_configured});
-  html += '<div class="kpi pc-card'+(d.pc_access_enabled?' warn':' off')+'">'
-    + '<div class="klabel"><svg viewBox="0 0 24 24">'+kpiIcon('pc')+'</svg>الوصول الكامل للجهاز</div>'
-    + '<div class="pc-row">'
-    + '<label class="switch"><input type="checkbox" id="pcToggle"'+(d.pc_access_enabled?' checked':'')+'><span class="slider"></span></label>'
-    + '<span class="kval" style="font-size:1rem">'+(d.pc_access_enabled?'مفعّل':'معطّل')+'</span>'
-    + '</div>'
-    + '<div class="ksub" id="pcNote">'+(d.pc_access_enabled?'نشط الآن — كل أمر يحتاج موافقتك رغم ذلك':'يعمل فقط من جهازك (localhost)')+'</div>'
-    + '</div>';
-  document.getElementById('overview').innerHTML = html;
+function hexToRgba(hex, a){
+  const h = (hex||'#3b4961').replace('#','');
+  const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+  return 'rgba('+r+','+g+','+b+','+a+')';
+}
+function tstat(label, value, cls){
+  return '<div class="tstat'+(cls?' '+cls:'')+'"><b>'+value+'</b><small>'+label+'</small></div>';
+}
+function pill(label, on, extra){
+  return '<span class="pill '+(on?'ok':'off')+(extra||'')+'"><span class="dot"></span>'+label+'</span>';
 }
 
-function renderGraph(d){
-  const bots = d.bots, usage = d.metrics.bot_usage || {};
-  const W=560,H=290,cx=W/2,cy=H/2+4,R=112;
-  let svg = '';
-  const pts = bots.map((b,i)=>{
-    const a = -Math.PI/2 + i*(2*Math.PI/bots.length);
-    return {x:cx+R*Math.cos(a), y:cy+R*Math.sin(a), b};
-  });
-  pts.forEach(p=>{
-    const used = (usage[p.b.key]||0) > 0;
-    svg += '<line x1="'+cx+'" y1="'+cy+'" x2="'+p.x+'" y2="'+p.y+'" stroke="'+(DIR_COLOR[p.b.directorate]||'#3b4961')+'" '
-      + 'stroke-width="'+(used?1.6:1)+'" stroke-opacity="'+(used?0.75:0.28)+'" stroke-dasharray="3 4">'
-      + '<animate attributeName="stroke-dashoffset" from="14" to="0" dur="1.1s" repeatCount="indefinite"/></line>';
-  });
-  svg += '<circle cx="'+cx+'" cy="'+cy+'" r="22" fill="#0c1220" stroke="#22d3ee" stroke-width="2"><animate attributeName="r" values="22;24;22" dur="2.4s" repeatCount="indefinite"/></circle>';
-  svg += '<text x="'+cx+'" y="'+(cy+4)+'" text-anchor="middle" font-size="9.5" fill="#22d3ee" font-weight="700">kernel</text>';
-  pts.forEach(p=>{
-    const n = usage[p.b.key]||0, used = n>0, color = DIR_COLOR[p.b.directorate]||'#3b4961';
-    svg += '<circle cx="'+p.x+'" cy="'+p.y+'" r="'+(used?15:12)+'" fill="#0c1220" stroke="'+color+'" stroke-width="'+(used?2.2:1.4)+'" opacity="'+(used?1:.6)+'"><title>'+escapeHtml(p.b.title_ar)+' — '+escapeHtml(DIR_LABEL[p.b.directorate]||p.b.directorate)+' — استُخدم '+n+' مرة</title></circle>';
-    if(used) svg += '<text x="'+p.x+'" y="'+(p.y+3.5)+'" text-anchor="middle" font-size="9" fill="'+color+'" font-weight="800">'+n+'</text>';
-    svg += '<text x="'+p.x+'" y="'+(p.y+(used?27:23))+'" text-anchor="middle" font-size="9" fill="#9fb0c8">'+escapeHtml(p.b.title_ar)+'</text>';
-  });
-  document.getElementById('graph').innerHTML = svg;
+/* ===== ticker + status strip ===== */
+function renderTicker(d){
+  const m = d.metrics, s = d.status, pendN = d.pending_approvals.length;
+  const rate = m.decisions.approval_rate;
+  const ratePct = rate==null ? null : Math.round(rate*100);
+  const activeBots = d.bots.filter(b => (m.bot_usage[b.key]||0) > 0).length;
+  document.getElementById('tickStats').innerHTML =
+    tstat('قرارات كلية', m.decisions.total)
+    + tstat('معدّل الموافقة', ratePct==null?'—':ratePct+'%')
+    + tstat('سجلات الذاكرة', s.memory_entries)
+    + tstat('مهارات مسجّلة', m.skills_registered)
+    + tstat('بوتات نشطة', activeBots+'/'+d.bots.length)
+    + tstat('معلّقة', pendN, pendN?'warn':'');
+
+  document.getElementById('statusStrip').innerHTML =
+    pill('Claude', s.claude_configured)
+    + pill('Daytona', s.daytona_configured)
+    + '<span class="pill'+(d.pc_access_enabled?' warn':' off')+'"><label class="switch"><input type="checkbox" id="pcToggle"'+(d.pc_access_enabled?' checked':'')+'><span class="slider"></span></label>وصول الجهاز الكامل: <b id="pcState">'+(d.pc_access_enabled?'مفعّل':'معطّل')+'</b></span>'
+    + '<span class="pill" id="pcNoteWrap"><small id="pcNote">'+(d.pc_access_enabled?'نشط — كل أمر يحتاج موافقتك رغم ذلك':'يعمل فقط من جهازك (localhost)')+'</small></span>';
+}
+
+/* ===== agent ledger cards ===== */
+function renderLedger(d, filter){
+  const usage = d.metrics.bot_usage || {};
+  const bd = d.bot_breakdown || {};
+  const rows = d.bots.filter(b => !filter || (b.title_ar+b.directorate).toLowerCase().includes(filter));
+  document.getElementById('ledgerRow').innerHTML = rows.length ? rows.map(b=>{
+    const color = DIR_COLOR[b.directorate] || '#3b4961';
+    const n = usage[b.key] || 0;
+    const stat = bd[b.key] || {};
+    const pr = stat.proposed||0, ap = stat.approved||0, rj = stat.rejected||0, tot = Math.max(pr,1);
+    const tools = b.allowed_tools.length ? b.allowed_tools.map(t=>'<span class="tag" style="font-size:.6rem;background:var(--panel2);border:1px solid var(--border);color:#9fb0c8;padding:2px 6px;border-radius:6px">'+escapeHtml(t)+'</span>').join('') : '<span class="tag" style="font-size:.6rem;background:var(--panel2);border:1px solid var(--border);color:#9fb0c8;padding:2px 6px;border-radius:6px">محادثة فقط</span>';
+    return '<div class="agent-card'+(n>0?' active':'')+'" style="--accent:'+color+'">'
+      + '<div class="ac-top"><span class="ac-dot"></span><div><div class="ac-name">'+escapeHtml(b.title_ar)+'</div><div class="ac-role">'+escapeHtml(DIR_LABEL[b.directorate]||b.directorate)+'</div></div>'
+      + '<span class="ac-status'+(n>0?' on':'')+'">'+(n>0?'نشط':'بلا نشاط')+'</span></div>'
+      + '<div class="ac-tools">'+tools+'</div>'
+      + '<div class="ac-bars"><span style="width:'+(100*ap/tot)+'%;background:'+color+'"></span><span style="width:'+(100*rj/tot)+'%;background:var(--red)"></span></div>'
+      + '<div class="ac-foot"><span>مقترَح <b>'+pr+'</b></span><span>موافَق <b>'+ap+'</b></span><span>مرفوض <b>'+rj+'</b></span></div>'
+      + '</div>';
+  }).join('') : '<div class="empty">لا تطابق</div>';
+
   document.getElementById('legend').innerHTML = Object.keys(DIR_LABEL).map(k=>
     '<span><i style="background:'+DIR_COLOR[k]+'"></i>'+DIR_LABEL[k]+'</span>'
   ).join('');
 }
 
-function renderBots(d, filter){
-  const usage = d.metrics.bot_usage || {};
-  const rows = d.bots.filter(b => !filter || (b.title_ar+b.directorate).toLowerCase().includes(filter));
-  document.getElementById('botsList').innerHTML = rows.length ? rows.map(b=>
-    '<div class="bot-row" data-k="'+(b.title_ar+' '+b.directorate).toLowerCase()+'">'
-    + '<span class="bot-dot" style="background:'+(DIR_COLOR[b.directorate]||'#3b4961')+'"></span>'
-    + '<span class="bot-name">'+escapeHtml(b.title_ar)+'</span>'
-    + '<span class="bot-dir">'+escapeHtml(DIR_LABEL[b.directorate]||b.directorate)+'</span>'
-    + '<span class="bot-tools">'+(b.allowed_tools.length?b.allowed_tools.map(t=>'<span class="tag">'+escapeHtml(t)+'</span>').join(''):'<span class="tag">محادثة فقط</span>')+'</span>'
-    + '<span class="bot-usage">×'+(usage[b.key]||0)+'</span>'
-    + '</div>'
-  ).join('') : '<div class="empty">لا تطابق</div>';
+/* ===== vortex (canvas particle visualization) ===== */
+const VORTEX = {particles:[], bot:{}, t:0};
+function vortexEnsureParticles(n){
+  if(VORTEX.particles.length) return;
+  for(let i=0;i<n;i++){
+    VORTEX.particles.push({a:Math.random()*Math.PI*2, rx:0.30+Math.random()*0.60, ry:0.10+Math.random()*0.30,
+      speed:0.05+Math.random()*0.30, size:0.5+Math.random()*1.3, tilt:Math.random()*Math.PI*2});
+  }
+}
+function vortexEnsureBots(bots){
+  bots.forEach((b,i)=>{
+    if(!VORTEX.bot[b.key]) VORTEX.bot[b.key] = {a: i*(Math.PI*2/Math.max(bots.length,1))};
+  });
+}
+function drawVortex(){
+  const canvas = document.getElementById('vortexCanvas');
+  if(!canvas || !lastData) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if(w===0||h===0) return;
+  if(canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)){
+    canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
+  }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  const cx=w/2, cy=h/2, R=Math.min(w,h)*0.42;
+  vortexEnsureParticles(150);
+  vortexEnsureBots(lastData.bots);
+  VORTEX.t += 1;
+
+  ctx.globalCompositeOperation = 'lighter';
+  VORTEX.particles.forEach(p=>{
+    p.a += p.speed*0.004;
+    const wob = Math.cos(p.tilt + VORTEX.t*0.0025);
+    const x = cx + Math.cos(p.a)*R*p.rx;
+    const y = cy + Math.sin(p.a)*R*p.ry*wob;
+    const alpha = 0.08 + 0.10*Math.abs(Math.sin(p.a*2));
+    ctx.beginPath(); ctx.fillStyle = 'rgba(255,120,70,'+alpha+')'; ctx.arc(x,y,p.size,0,Math.PI*2); ctx.fill();
+  });
+
+  const pulse = 1 + 0.07*Math.sin(VORTEX.t*0.045);
+  const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,32*pulse);
+  grad.addColorStop(0,'rgba(255,160,90,.85)'); grad.addColorStop(1,'rgba(255,90,40,0)');
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cx,cy,32*pulse,0,Math.PI*2); ctx.fill();
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.beginPath(); ctx.fillStyle = '#0b0d10'; ctx.arc(cx,cy,14,0,Math.PI*2); ctx.fill();
+  ctx.lineWidth = 1.6; ctx.strokeStyle = '#ff6a3d'; ctx.stroke();
+  ctx.fillStyle = '#ffb199'; ctx.font = '700 9px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('kernel', cx, cy+3);
+
+  const usage = lastData.metrics.bot_usage || {};
+  (lastData.bots||[]).forEach(b=>{
+    const st = VORTEX.bot[b.key]; if(!st) return;
+    const n = usage[b.key]||0;
+    st.a += 0.0020 + Math.min(n,10)*0.0009;
+    const orbitR = R*0.86;
+    const x = cx + Math.cos(st.a)*orbitR, y = cy + Math.sin(st.a)*orbitR*0.50;
+    const color = DIR_COLOR[b.directorate] || '#94a3b8';
+    const rad = n>0 ? 8+Math.min(n,8) : 5.5;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y);
+    ctx.strokeStyle = hexToRgba(color, n>0?0.5:0.14); ctx.lineWidth = n>0?1.3:0.7; ctx.stroke();
+    ctx.beginPath(); ctx.fillStyle = '#0b0d10'; ctx.arc(x,y,rad,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth = n>0?2.1:1.1; ctx.strokeStyle = color; ctx.stroke();
+    if(n>0){ ctx.fillStyle = color; ctx.font='800 9px system-ui'; ctx.textAlign='center'; ctx.fillText(String(n), x, y+3); }
+    ctx.fillStyle = '#9fb0c8'; ctx.font='9px system-ui'; ctx.textAlign='center';
+    ctx.fillText(b.title_ar, x, y+rad+12);
+  });
+
+  requestAnimationFrame(drawVortex);
+}
+
+function renderVortexStats(d){
+  const m = d.metrics, pendN = d.pending_approvals.length;
+  const activeBots = d.bots.filter(b => (m.bot_usage[b.key]||0) > 0).length;
+  const rate = m.decisions.approval_rate;
+  document.getElementById('vsActive').textContent = activeBots+'/'+d.bots.length;
+  document.getElementById('vsRate').textContent = rate==null ? '—' : Math.round(rate*100)+'%';
+  document.getElementById('vsTotal').textContent = m.decisions.total;
+  document.getElementById('vsPending').textContent = pendN;
+}
+
+/* ===== gate gauge + trend ===== */
+function gaugeSvg(pct, color){
+  const r=30, c=2*Math.PI*r, off = pct==null ? c : c*(1-pct/100);
+  return '<svg viewBox="0 0 78 78">'
+    +'<circle cx="39" cy="39" r="'+r+'" fill="none" stroke="#1e2228" stroke-width="7"/>'
+    +'<circle cx="39" cy="39" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="7" stroke-linecap="round" '
+    +'stroke-dasharray="'+c+'" stroke-dashoffset="'+off+'" transform="rotate(-90 39 39)" style="transition:stroke-dashoffset .5s"/>'
+    +'<text x="39" y="44" text-anchor="middle" font-size="15" fill="#eef1f5" font-weight="800">'+(pct==null?'—':Math.round(pct)+'%')+'</text>'
+    +'</svg>';
+}
+function renderGate(d){
+  const m = d.metrics, rate = m.decisions.approval_rate;
+  const pct = rate==null?null:rate*100;
+  const color = pct==null ? '#3b4961' : (pct>=70?'#34d399':pct>=40?'#fbbf24':'#f87171');
+  document.getElementById('gateGauge').outerHTML = gaugeSvg(pct, color).replace('<svg ','<svg id="gateGauge" class="g" ');
+  document.getElementById('gateNum').textContent = m.decisions.approved+'/'+(m.decisions.approved+m.decisions.rejected);
+
+  const trend = d.rate_trend || [];
+  const svg = document.getElementById('gateTrend');
+  if(trend.length < 2){ svg.innerHTML = '<text x="140" y="26" text-anchor="middle" font-size="10" fill="#687080">لا تاريخ كافٍ بعد</text>'; return; }
+  const W=280,H=46, step = W/(trend.length-1);
+  const pts = trend.map((v,i)=>[i*step, H-4-(v/100)*(H-10)]);
+  const line = pts.map(p=>p[0]+','+p[1]).join(' ');
+  const area = 'M'+pts[0][0]+','+H+' L'+line.replace(/ /g,' L')+' L'+pts[pts.length-1][0]+','+H+' Z';
+  svg.innerHTML = '<polygon points="'+area.replace(/[ML]/g,'').trim()+'" fill="rgba(255,106,61,.12)"/>'
+    + '<polyline points="'+line+'" fill="none" stroke="#ff6a3d" stroke-width="1.6"/>';
+}
+
+/* ===== bottom charts (real timeline-derived) ===== */
+function renderBottomCharts(d){
+  const tl = d.timeline || [];
+  // نمو القرارات: تراكمي حقيقي لعدد كل القرارات بترتيبها الزمني
+  const g = document.getElementById('chartGrowth');
+  if(tl.length < 2){ g.innerHTML = '<text x="140" y="56" text-anchor="middle" font-size="10" fill="#687080">لا بيانات كافية</text>'; }
+  else{
+    const W=280,H=112,step=W/(tl.length-1);
+    const pts = tl.map((e,i)=>[i*step, H-10-(i/(tl.length-1))*(H-20)]);
+    const line = pts.map(p=>p[0]+','+p[1]).join(' ');
+    g.innerHTML = '<polyline points="'+line+'" fill="none" stroke="#22d3ee" stroke-width="1.6"/>'
+      + '<text x="4" y="14" font-size="9" fill="#687080">'+tl.length+' قيد آخر 60</text>';
+  }
+  // أثر القرارات بالزمن: علامة لكل حدث، لون حسب المرحلة
+  const sp = document.getElementById('chartSpikes');
+  if(!tl.length){ sp.innerHTML = '<text x="140" y="56" text-anchor="middle" font-size="10" fill="#687080">لا أحداث بعد</text>'; }
+  else{
+    const W=280,H=112,step=tl.length>1?W/(tl.length-1):0;
+    const col = {proposed:'#60a5fa', approved:'#34d399', rejected:'#f87171'};
+    const lane = {proposed:18, approved:46, rejected:74};
+    const marks = tl.map((e,i)=>{
+      const x = tl.length>1 ? i*step : W/2;
+      const y = H - 14 - (lane[e.stage] || 18);
+      return '<circle cx="'+x+'" cy="'+y+'" r="2.6" fill="'+(col[e.stage]||'#687080')+'"/>';
+    }).join('');
+    sp.innerHTML = '<line x1="0" y1="94" x2="280" y2="94" stroke="#1e2228"/>' + marks;
+  }
+  // خريطة الترابط: شبكة مصغّرة لنفس بيانات الدوّامة
+  const syn = document.getElementById('chartSynapse');
+  const bots = d.bots||[], usage = d.metrics.bot_usage||{};
+  const W=280,H=112,cx=W/2,cy=H/2+4,R=40;
+  let html='';
+  const pts = bots.map((b,i)=>{ const a=-Math.PI/2+i*(2*Math.PI/Math.max(bots.length,1)); return {x:cx+R*Math.cos(a), y:cy+R*Math.sin(a), b}; });
+  pts.forEach(p=>{ const used=(usage[p.b.key]||0)>0; html+='<line x1="'+cx+'" y1="'+cy+'" x2="'+p.x+'" y2="'+p.y+'" stroke="'+(DIR_COLOR[p.b.directorate]||'#3b4961')+'" stroke-width="'+(used?1.2:.7)+'" stroke-opacity="'+(used?.7:.25)+'"/>'; });
+  pts.forEach(p=>{ const used=(usage[p.b.key]||0)>0; html+='<circle cx="'+p.x+'" cy="'+p.y+'" r="'+(used?4.2:3)+'" fill="'+(DIR_COLOR[p.b.directorate]||'#3b4961')+'" opacity="'+(used?1:.55)+'"><title>'+escapeHtml(p.b.title_ar)+'</title></circle>'; });
+  html += '<circle cx="'+cx+'" cy="'+cy+'" r="5" fill="#0b0d10" stroke="#ff6a3d" stroke-width="1.4"/>';
+  syn.innerHTML = html;
 }
 
 function renderPending(d){
@@ -471,7 +656,7 @@ function renderFeed(d, filter){
     return '<div class="trow '+e.stage+'">'
       + '<span class="tt">'+timeShort(e.at)+'</span>'
       + '<span class="tstage">'+stageAr+'</span>'
-      + '<span class="twhat" title="'+escapeHtml(e.what||'')+'">'+escapeHtml((e.what||'').slice(0,54))+'</span>'
+      + '<span class="twhat" title="'+escapeHtml(e.what||'')+'">'+escapeHtml((e.what||'').slice(0,50))+'</span>'
       + '<span class="tby">'+escapeHtml(e.proposed_by||e.decided_by||'')+'</span>'
       + '</div>';
   }).join('') : '<div class="empty">لا قرارات بعد</div>';
@@ -491,10 +676,10 @@ document.getElementById('pendingList').addEventListener('click', e=>{
 document.getElementById('search').addEventListener('input', e=>{
   if(!lastData) return;
   const f = e.target.value.trim().toLowerCase();
-  renderBots(lastData, f);
+  renderLedger(lastData, f);
   renderFeed(lastData, f);
 });
-document.getElementById('overview').addEventListener('change', async e=>{
+document.getElementById('statusStrip').addEventListener('change', async e=>{
   if(e.target.id !== 'pcToggle') return;
   const cb = e.target, enabling = cb.checked;
   const note = document.getElementById('pcNote');
@@ -515,18 +700,22 @@ document.getElementById('overview').addEventListener('change', async e=>{
 function tickClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('ar-SA'); }
 setInterval(tickClock, 1000); tickClock();
 
+let vortexStarted = false;
 async function load(){
   const pulse = document.getElementById('pulse');
   try{
     const r = await fetch('/api/dashboard');
     const d = await r.json();
     lastData = d;
-    renderKpis(d);
-    renderGraph(d);
-    renderBots(d, document.getElementById('search').value.trim().toLowerCase());
+    renderTicker(d);
+    renderLedger(d, document.getElementById('search').value.trim().toLowerCase());
+    renderVortexStats(d);
+    renderGate(d);
+    renderBottomCharts(d);
     renderPending(d);
     renderFeed(d, document.getElementById('search').value.trim().toLowerCase());
     pulse.className = 'pulse-dot';
+    if(!vortexStarted){ vortexStarted = true; requestAnimationFrame(drawVortex); }
   }catch(e){
     pulse.className = 'pulse-dot err';
   }
@@ -536,6 +725,25 @@ setInterval(load, 4000);
 </script>
 </body>
 </html>"""
+
+
+def _rate_trend(full_ledger: list[dict], points: int = 40) -> list[int]:
+    """سلسلة تاريخية حقيقية لمعدّل الموافقة التراكمي — نحسبها بأنفسنا
+    بالمرور الزمني على السجل الكامل (لا بيانات مصطنعة): عند كل قرار
+    موافَق/مرفوض نسجّل النسبة التراكمية لحظتها. تُستخدم لرسم خط اتجاه
+    حقيقي بدل رقم ثابت وحيد."""
+    approved = decided = 0
+    trend: list[int] = []
+    for e in full_ledger:
+        if e.get("stage") == "approved":
+            approved += 1
+            decided += 1
+        elif e.get("stage") == "rejected":
+            decided += 1
+        else:
+            continue
+        trend.append(round(100 * approved / decided))
+    return trend[-points:]
 
 
 def _dashboard_data() -> dict:
@@ -555,6 +763,13 @@ def _dashboard_data() -> dict:
         "recent_decisions": recent,
         "bots": bots.list_bots(),
         "pc_access_enabled": safety.pc_access_enabled(),
+        # إضافات لوحة التحكم الحيّة — كلها حقيقية من نفس evidence.py/decision.py
+        # الموجودين، لا مصدر بيانات جديد: تفصيل لكل بوت (اقتراح/موافقة/رفض)
+        # لبطاقات العقدة الكثيفة، الخط الزمني الكامل للرسوم السفلية، واتجاه
+        # معدّل الموافقة التاريخي الحقيقي بدل رقم لحظي وحيد.
+        "bot_breakdown": evidence.audit()["by_actor"],
+        "timeline": full_ledger[-60:],
+        "rate_trend": _rate_trend(full_ledger),
     }
 
 
