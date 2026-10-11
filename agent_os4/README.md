@@ -112,6 +112,7 @@ cd agent-os-v3
 pip install -r agent_os4/requirements.txt
 # انسخ .env.example إلى .env وحط فيه ANTHROPIC_API_KEY (وتيليجرام لو تبي)
 
+python3 -m agent_os4.doctor       # فحص الإعداد (المفتاح ما ينطبع) — و --live يجرّب Claude فعلياً
 python3 -m agent_os4.web_chat     # لوحة التحكم: http://localhost:8080/dashboard
 python3 -m agent_os4.cli          # أو من الطرفية
 ```
