@@ -79,6 +79,29 @@ def run_bash(sandbox_id: str, command: str, timeout: int = 60) -> dict:
     return {"exit_code": result.exit_code, "output": result.result}
 
 
+_UPLOAD_CHUNK = 60_000
+
+
+def upload_steps(tar_b64: str, remote_path: str) -> list[str]:
+    """أوامر ترفع الحزمة على دفعات. أمر واحد فيه الحزمة كاملة يتعدّى حد
+    لينكس لطول الوسيط الواحد (128KB) — وحزمة agent_os4 صارت أكبر منه.
+    base64 ما فيه علامات تنصيص، فالتضمين داخل '...' آمن."""
+    steps = [f"rm -f {remote_path}"]
+    for i in range(0, len(tar_b64), _UPLOAD_CHUNK):
+        steps.append(f"printf '%s' '{tar_b64[i:i + _UPLOAD_CHUNK]}' >> {remote_path}")
+    return steps
+
+
+def run_steps(sandbox_id: str, steps: list[str], timeout: int = 120) -> dict:
+    """ينفّذ الأوامر بالترتيب ويوقف عند أول فشل — يرجّع نتيجة آخر أمر نفّذ."""
+    result = {"exit_code": 0, "output": ""}
+    for step in steps:
+        result = run_bash(sandbox_id, step, timeout=timeout)
+        if result["exit_code"] != 0:
+            break
+    return result
+
+
 def destroy(sandbox_id: str) -> None:
     daytona = _client()
     sandbox = daytona.get(sandbox_id)

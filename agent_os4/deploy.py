@@ -17,10 +17,12 @@ from . import env, sandbox  # noqa: F401 — env يضمن تحميل .env الم
 
 PORT = 8080
 
+_PKG_REMOTE = "/root/os4pkg.b64"
+
 _START_SCRIPT = """set -e
 mkdir -p /root/app && cd /root/app
-echo '{tar_b64}' | base64 -d | tar xz
-pip install -q python-dotenv requests >/tmp/pip.log 2>&1 || true
+base64 -d /root/os4pkg.b64 | tar xz
+pip install -q python-dotenv requests anthropic >/tmp/pip.log 2>&1 || true
 cd /root/app
 nohup python3 -m agent_os4.web_chat > /root/app/web_chat.log 2>&1 &
 sleep 2
@@ -39,8 +41,7 @@ def deploy(expires_in_seconds: int = 3600) -> dict:
     if "ANTHROPIC_API_KEY" not in env_vars:
         return {"ok": False, "stage": "preflight", "error": "لا يوجد ANTHROPIC_API_KEY بـ.env — الشات بلا مخ لن يرد على شي"}
 
-    tar_b64 = sandbox.build_package_tarball_b64()
-    script = _START_SCRIPT.format(tar_b64=tar_b64)
+    steps = sandbox.upload_steps(sandbox.build_package_tarball_b64(), _PKG_REMOTE) + [_START_SCRIPT]
 
     try:
         sb_id = sandbox.create(label="os4-web-chat", ttl_minutes=120, env_vars=env_vars)
@@ -48,7 +49,7 @@ def deploy(expires_in_seconds: int = 3600) -> dict:
         return {"ok": False, "stage": "create", "error": f"{type(e).__name__}: {e}"}
 
     try:
-        result = sandbox.run_bash(sb_id, script, timeout=90)
+        result = sandbox.run_steps(sb_id, steps, timeout=90)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "stage": "start", "sandbox_id": sb_id, "error": f"{type(e).__name__}: {e}"}
 

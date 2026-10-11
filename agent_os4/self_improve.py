@@ -64,31 +64,36 @@ def _real_path(relative_filename: str) -> str:
     return path
 
 
-def sandbox_script(relative_filename: str, new_content: str) -> str:
-    """نفس السكربت اللي يشتغل داخل Daytona — منفصل عشان ينختبر محلياً."""
+_PKG_REMOTE = "/tmp/os4pkg.b64"
+
+
+def sandbox_steps(relative_filename: str, new_content: str) -> list[str]:
+    """نفس الأوامر اللي تشتغل داخل Daytona بالترتيب — منفصلة عشان تنختبر
+    محلياً. الحزمة تنرفع على دفعات (راجع sandbox.upload_steps) ثم تنفك."""
     tar_b64 = sandbox.build_package_tarball_b64({relative_filename: new_content})
     imports = ", ".join(f"agent_os4.{m}" for m in _SUBMODULES)
-    return (
+    check = (
         "set -e\n"
         "rm -rf /tmp/os4test && mkdir -p /tmp/os4test && cd /tmp/os4test\n"
-        f"echo '{tar_b64}' | base64 -d | tar xz\n"
+        f"base64 -d {_PKG_REMOTE} | tar xz\n"
         "pip install -q python-dotenv requests >/tmp/pip.log 2>&1 || true\n"
         "python3 -m py_compile agent_os4/*.py\n"
         f"python3 -c \"import sys; sys.path.insert(0, '.'); import {imports}; print('IMPORT_OK')\"\n"
-        # اختبار سلوكي: الحواجز (موافقة/أدوات الجهاز/سقف الصرف/CSRF) لسا شغالة فعلاً
+        # اختبار سلوكي: الحواجز (موافقة/أدوات الجهاز/سقف الصرف/CSRF/تيليجرام) لسا شغالة فعلاً
         "python3 -m agent_os4.selftest\n"
     )
+    return sandbox.upload_steps(tar_b64, _PKG_REMOTE) + [check]
 
 
 def _test_in_sandbox(relative_filename: str, new_content: str) -> dict:
-    script = sandbox_script(relative_filename, new_content)
+    steps = sandbox_steps(relative_filename, new_content)
     sb_id = None
     try:
         sb_id = sandbox.create(label="self-improve-test")
-        result = sandbox.run_bash(sb_id, script, timeout=120)
+        result = sandbox.run_steps(sb_id, steps, timeout=120)
         output = str(result["output"])
         passed = result["exit_code"] == 0 and "IMPORT_OK" in output and "SELFTEST_OK" in output
-        return {"ok": passed, "output": str(result["output"])[:3000]}
+        return {"ok": passed, "output": output[:3000]}
     except Exception as e:  # noqa: BLE001 — أي فشل بالوصول لـDaytona نفسه = فشل اختبار، لا تجاوز صامت
         return {"ok": False, "output": f"{type(e).__name__}: {e}"}
     finally:
