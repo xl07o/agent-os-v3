@@ -1,0 +1,21 @@
+# نشر: fly launch (أول مرة فقط، يسألك اسم التطبيق) ثم fly deploy.
+# حساب Fly.io وتسجيل الدخول عندك إنت فقط — ما يصل لي أبداً أي مفتاح أو
+# توكن. بعد النشر: fly secrets set ANTHROPIC_API_KEY=... (ويُدايتونا لو
+# تبي أدوات الساندبوكس شغّالة من الشات أيضاً).
+app = "CHANGE-ME-agent-os4-chat"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # الاثنان مهمان لـ"دائم ٢٤/٨" حقيقي — بدونهما Fly توقف الآلة تلقائياً
+  # بعد فترة خمول وتبدأ من جديد ببرودة عند أول طلب (مو دائم فعلياً).
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

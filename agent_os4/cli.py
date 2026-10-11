@@ -2,10 +2,13 @@
 
 import os
 
-from . import approval, bots, chatroom, decision, deploy, evidence, housekeeping, kernel, metrics, router, self_improve, skills
+from . import approval, bots, chatroom, decision, deploy, docs_sync, evidence, housekeeping, kernel, metrics, router, self_improve, skills
 
 _HELP = """أوامر خاصة (غير مرسلة للعقل):
   انشر                                       ينشر شاتاً ويباً على Daytona ويعطيك رابطاً تفتحه بالمتصفح
+  دقق_توثيق <مسار_مشروع> [ملف_توثيق]        يفحص تطابق التوثيق مع الكود الفعلي + مخلّفات الجلسات (قراءة فقط)
+  اقترح_توثيق <مسار> <ملف> <مسار_محتوى_جديد> <سبب>   يقترح تعديل توثيق (يحتاج موافقة)
+  طبّق_توثيق <id>                           يطبّق تعديل توثيق مُوافَقاً عليه فعلياً
   تحسين <ملف.py> <مسار_محتوى_جديد> <سبب>   يقترح تعديلاً، يختبره بساندبوكس، يفتح طلب موافقة
   اقتراحات                                  يعرض كل اقتراحات التطوير الذاتي المعلّقة/المحلولة
   طبّق <id>                                 يطبّق اقتراحاً مُوافَقاً عليه فعلياً على الملف
@@ -199,6 +202,53 @@ def _handle_use_skill(rest: str) -> None:
         print(f"فشل: {type(e).__name__}: {e}")
 
 
+def _handle_docs_audit(rest: str) -> None:
+    parts = rest.split(" ", 1)
+    project_root = parts[0] if parts else ""
+    doc_filename = parts[1] if len(parts) > 1 else "README.md"
+    if not project_root or not os.path.isdir(project_root):
+        print("الاستخدام: دقق_توثيق <مسار_مشروع> [ملف_توثيق=README.md]")
+        return
+    r = docs_sync.audit(project_root, doc_filename)
+    if r["in_sync"]:
+        print("متطابق تماماً — لا فرق بين التوثيق والكود الفعلي.")
+        return
+    if r["undocumented_files"]:
+        print(f"ملفات .py بلا ذكر بالتوثيق: {', '.join(r['undocumented_files'])}")
+    if r["stale_doc_references"]:
+        print(f"ملفات مذكورة بالتوثيق لكنها غير موجودة فعلياً: {', '.join(r['stale_doc_references'])}")
+    if r["residue_candidates"]:
+        print(f"مرشحات مخلّفات جلسات سابقة (للمراجعة، لم تُحذف): {', '.join(r['residue_candidates'])}")
+
+
+def _handle_docs_propose(rest: str) -> None:
+    parts = rest.split(" ", 3)
+    if len(parts) < 4:
+        print("الاستخدام: اقترح_توثيق <مسار_مشروع> <ملف_توثيق> <مسار_محتوى_جديد> <سبب>")
+        return
+    project_root, doc_filename, content_path, why = parts
+    if not os.path.isfile(content_path):
+        print(f"ملف غير موجود: {content_path}")
+        return
+    with open(content_path, "r", encoding="utf-8") as f:
+        new_content = f.read()
+    result = docs_sync.propose_doc_fix(project_root, doc_filename, new_content, why)
+    if not result["ok"]:
+        print(result["error"])
+        return
+    print(f"طلب موافقة جديد: [{result['request_id']}]")
+    print(result["diff"])
+    print("اكتب: وافق " + result["request_id"] + "  ثم  طبّق_توثيق " + result["request_id"])
+
+
+def _handle_docs_apply(request_id: str) -> None:
+    result = docs_sync.apply_doc_fix(request_id)
+    if not result["ok"]:
+        print(result["error"])
+        return
+    print(f"طُبِّق على: {result['applied_to']}")
+
+
 def _handle_audit() -> None:
     a = evidence.audit()
     print(f"  إجمالي السجلات: {a['total_entries']} — مُقترح: {a['proposed']} — موافَق: {a['approved']} — مرفوض: {a['rejected']}")
@@ -261,6 +311,15 @@ def main() -> None:
             continue
         if task in ("انشر",):
             _handle_deploy()
+            continue
+        if task.startswith("دقق_توثيق "):
+            _handle_docs_audit(task[len("دقق_توثيق "):])
+            continue
+        if task.startswith("اقترح_توثيق "):
+            _handle_docs_propose(task[len("اقترح_توثيق "):])
+            continue
+        if task.startswith("طبّق_توثيق "):
+            _handle_docs_apply(task[len("طبّق_توثيق "):].strip())
             continue
         if task.startswith("وافق "):
             _handle_resolve(task[len("وافق "):].strip(), approved=True)
